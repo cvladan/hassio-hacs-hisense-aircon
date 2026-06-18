@@ -8,6 +8,7 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant import config_entries
+from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.const import (
     CONF_HOST,
     CONF_NAME,
@@ -16,7 +17,7 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 from homeassistant.core import callback
-from homeassistant.data_entry_flow import FlowResult, section
+from homeassistant.data_entry_flow import section
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
@@ -79,7 +80,7 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
   @callback
   def async_get_options_flow(config_entry: config_entries.ConfigEntry) -> HisenseOptionsFlow:
     """Return the options flow."""
-    return HisenseOptionsFlow(config_entry)
+    return HisenseOptionsFlow()
 
   async def async_step_user(self, user_input: dict[str, Any] | None = None):
     """Choose setup method."""
@@ -100,7 +101,7 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         }),
     )
 
-  async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None) -> FlowResult:
+  async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
     """Choose how to update devices on an existing config entry."""
     if user_input is not None:
       action = user_input[_RECONFIGURE_ACTION]
@@ -126,7 +127,7 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         }),
     )
 
-  async def _async_step_reconfigure_manage(self) -> FlowResult:
+  async def _async_step_reconfigure_manage(self) -> ConfigFlowResult:
     """Prepare device selection for removing devices from the current list."""
     entry = self._get_reconfigure_entry()
     self._reconfigure_entry = entry
@@ -138,7 +139,7 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     return await self.async_step_reconfigure_select_devices()
 
   async def async_step_reconfigure_cloud(
-      self, user_input: dict[str, Any] | None = None) -> FlowResult:
+      self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
     """Rediscover devices through the Hisense/Ayla account."""
     entry = self._get_reconfigure_entry()
     errors: dict[str, str] = {}
@@ -220,7 +221,7 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     )
 
   async def async_step_reconfigure_manual(
-      self, user_input: dict[str, Any] | None = None) -> FlowResult:
+      self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
     """Append a manually configured device to the existing config entry."""
     entry = self._get_reconfigure_entry()
     errors: dict[str, str] = {}
@@ -260,7 +261,7 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     )
 
   async def async_step_reconfigure_select_devices(
-      self, user_input: dict[str, Any] | None = None) -> FlowResult:
+      self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
     """Select which devices to keep on an existing config entry."""
     entry = getattr(self, "_reconfigure_entry", None)
     if entry is None:
@@ -304,8 +305,8 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
       entry: config_entries.ConfigEntry,
       selected_devices: list[dict[str, Any]],
       data_updates: dict[str, Any] | None = None,
-  ) -> FlowResult:
-    """Update the config entry device list and reload."""
+  ) -> ConfigFlowResult:
+    """Update the config entry device list; the update listener reloads."""
     old_macs = {device["mac_address"] for device in entry.data[CONF_DEVICES]}
     new_macs = {device["mac_address"] for device in selected_devices}
     _remove_orphaned_devices(self.hass, old_macs - new_macs)
@@ -314,9 +315,9 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     if data_updates:
       updates.update(data_updates)
 
-    await self.async_set_unique_id(_unique_id(selected_devices))
-    return self.async_update_reload_and_abort(
+    return self.async_update_and_abort(
         entry,
+        unique_id=_unique_id(selected_devices),
         data_updates=updates,
         title=", ".join(device["name"] for device in selected_devices),
     )
@@ -489,10 +490,7 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 class HisenseOptionsFlow(config_entries.OptionsFlow):
   """Handle Hisense options."""
 
-  def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-    self._entry = config_entry
-
-  async def async_step_init(self, user_input: dict[str, Any] | None = None):
+  async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
     """Manage runtime options."""
     if user_input is not None:
       return self.async_create_entry(
@@ -510,33 +508,33 @@ class HisenseOptionsFlow(config_entries.OptionsFlow):
         data_schema=vol.Schema({
             vol.Optional(
                 CONF_LOCAL_IP,
-                default=self._entry.options.get(
+                default=self.config_entry.options.get(
                     CONF_LOCAL_IP,
-                    self._entry.data.get(CONF_LOCAL_IP) or "",
+                    self.config_entry.data.get(CONF_LOCAL_IP) or "",
                 ),
             ):
                 str,
             vol.Required(
                 CONF_CALLBACK_PORT,
-                default=self._entry.options.get(
+                default=self.config_entry.options.get(
                     CONF_CALLBACK_PORT,
-                    self._entry.data.get(CONF_CALLBACK_PORT, DEFAULT_CALLBACK_PORT),
+                    self.config_entry.data.get(CONF_CALLBACK_PORT, DEFAULT_CALLBACK_PORT),
                 ),
             ):
                 int,
             vol.Required(
                 CONF_STATUS_INTERVAL,
-                default=self._entry.options.get(
+                default=self.config_entry.options.get(
                     CONF_STATUS_INTERVAL,
-                    self._entry.data.get(CONF_STATUS_INTERVAL, DEFAULT_STATUS_INTERVAL),
+                    self.config_entry.data.get(CONF_STATUS_INTERVAL, DEFAULT_STATUS_INTERVAL),
                 ),
             ):
                 int,
             vol.Required(
                 CONF_TEMP_TYPE,
-                default=self._entry.options.get(
+                default=self.config_entry.options.get(
                     CONF_TEMP_TYPE,
-                    self._entry.data.get(CONF_TEMP_TYPE, CONF_TEMP_TYPE_AUTO),
+                    self.config_entry.data.get(CONF_TEMP_TYPE, CONF_TEMP_TYPE_AUTO),
                 ),
             ):
                 SelectSelector(
