@@ -76,9 +76,11 @@ After installing, restart Home Assistant. Then open **Settings -> Devices & serv
 
 ## Supported Setup Methods
 
-### Cloud Discovery
+The integration supports two hub types. You can create multiple hubs in Home Assistant, for example one cloud account hub and several manual hubs.
 
-Use this if the device is still visible in the original mobile app.
+### Cloud account hub
+
+Use this when your air conditioner is still visible in the original mobile app. This hub is linked to one app account. Devices can only be added through cloud discovery.
 
 1. Install the integration through HACS as a custom repository.
 2. Restart Home Assistant.
@@ -91,6 +93,13 @@ Use this if the device is still visible in the original mobile app.
    - app password
 7. Select one or more discovered air conditioners to add. All discovered devices are selected by default.
 
+After setup, open the hub's **Configure** menu to:
+
+- **Rediscover devices** from the same app account and add newly paired air conditioners
+- **Remove devices** from the hub
+
+Use **Re-authenticate** on the hub to update the stored app password or app code. The username must stay the same.
+
 Advanced settings are optional and can usually stay collapsed:
 
 - device name filter, if you want discovery to look for only one exact app device name
@@ -98,9 +107,9 @@ Advanced settings are optional and can usually stay collapsed:
 - optional Home Assistant local IP if HA has multiple network interfaces or VLANs
 - device temperature unit override, if the automatic app-code detection reports the wrong unit
 
-### Manual LAN Key Setup
+### Manual hub
 
-Use this if you already know the device LAN key and key ID.
+Use this if you already know the device LAN key and key ID. Each manual hub contains exactly one air conditioner. To add another manually configured device, create another hub.
 
 Enter:
 
@@ -115,13 +124,7 @@ Enter:
 - Home Assistant HTTP port
 - optional Home Assistant local IP
 
-### Managing Devices After Setup
-
-After the integration is configured, open **Settings -> Devices & services**, select **Hisense Air Conditioner**, and choose **Configure** to add, remove, or refresh devices without deleting the integration:
-
-- **Rediscover from cloud account** — re-enter app credentials to refresh LAN keys and add newly paired air conditioners
-- **Add device manually** — append another air conditioner using its LAN key
-- **Manage configured devices** — remove air conditioners from this integration (at least one must remain)
+After setup, open the hub's **Configure** menu to edit the device's connection details.
 
 ## Network Notes
 

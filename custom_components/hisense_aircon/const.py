@@ -13,6 +13,7 @@ CONF_LANIP_KEY_ID = "lanip_key_id"
 CONF_LOCAL_IP = "local_ip"
 CONF_MAC_ADDRESS = "mac_address"
 CONF_MODEL = "model"
+CONF_HUB_TYPE = "hub_type"
 CONF_SETUP_METHOD = "setup_method"
 CONF_STATUS_INTERVAL = "status_interval"
 CONF_SW_VERSION = "sw_version"
@@ -25,9 +26,11 @@ DEFAULT_STATUS_INTERVAL = 600
 SETUP_METHOD_CLOUD = "cloud"
 SETUP_METHOD_MANUAL = "manual"
 
+HUB_TYPE_CLOUD = SETUP_METHOD_CLOUD
+HUB_TYPE_MANUAL = SETUP_METHOD_MANUAL
+
 TEMP_TYPE_OPTIONS = [CONF_TEMP_TYPE_AUTO, "C", "F"]
 
-ACTIVE_CONTROLLER = "active_controller"
 VIEWS_REGISTERED = "views_registered"
 
 
