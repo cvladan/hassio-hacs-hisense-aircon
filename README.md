@@ -115,6 +115,14 @@ Enter:
 - Home Assistant HTTP port
 - optional Home Assistant local IP
 
+### Managing Devices After Setup
+
+After the integration is configured, open **Settings -> Devices & services**, select **Hisense Air Conditioner**, and choose **Configure** to add, remove, or refresh devices without deleting the integration:
+
+- **Rediscover from cloud account** — re-enter app credentials to refresh LAN keys and add newly paired air conditioners
+- **Add device manually** — append another air conditioner using its LAN key
+- **Manage configured devices** — remove air conditioners from this integration (at least one must remain)
+
 ## Network Notes
 
 The air conditioner must be able to reach Home Assistant by plain HTTP on the configured port. The integration registers these local endpoints:

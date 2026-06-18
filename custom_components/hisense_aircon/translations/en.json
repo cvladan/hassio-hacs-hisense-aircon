@@ -63,16 +63,46 @@
           "callback_port": "Home Assistant HTTP port",
           "status_interval": "Status refresh interval"
         }
+      },
+      "reconfigure": {
+        "title": "Manage devices",
+        "description": "Add, remove, or refresh air conditioners on this integration.",
+        "data": {
+          "reconfigure_action": "Action"
+        }
+      },
+      "reconfigure_cloud": {
+        "title": "Rediscover from Hisense app",
+        "description": "Re-enter your app account credentials to refresh LAN keys and find additional air conditioners. Currently configured devices stay selected even if they are no longer visible in the cloud account."
+      },
+      "reconfigure_manual": {
+        "title": "Add device manually",
+        "description": "Add another air conditioner using its LAN key and network details."
+      },
+      "reconfigure_select_devices": {
+        "title": "Select Hisense devices",
+        "description": "Choose which air conditioners to keep on this integration. At least one device must remain selected."
       }
     },
     "error": {
       "cannot_connect": "Could not connect to the Hisense/Ayla service or the credentials were rejected.",
       "device_not_found": "No matching device was found.",
       "invalid_manual_config": "Manual configuration is incomplete or invalid.",
-      "no_device_selected": "Select at least one device."
+      "no_device_selected": "Select at least one device.",
+      "duplicate_mac": "This MAC address is already configured on this integration."
     },
     "abort": {
-      "already_configured": "This device is already configured."
+      "already_configured": "This device is already configured.",
+      "reconfigure_successful": "Device configuration updated successfully."
+    }
+  },
+  "selector": {
+    "reconfigure_action": {
+      "options": {
+        "rediscover": "Rediscover from cloud account",
+        "add_manual": "Add device manually",
+        "manage": "Manage configured devices"
+      }
     }
   },
   "options": {

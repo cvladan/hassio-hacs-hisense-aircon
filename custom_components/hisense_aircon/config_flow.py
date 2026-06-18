@@ -16,7 +16,8 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 from homeassistant.core import callback
-from homeassistant.data_entry_flow import section
+from homeassistant.data_entry_flow import FlowResult, section
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
     SelectSelector,
@@ -56,6 +57,10 @@ _LOGGER = logging.getLogger(__name__)
 
 _ADVANCED_SETTINGS = "advanced_settings"
 _SELECTED_DEVICES = "selected_devices"
+_RECONFIGURE_ACTION = "reconfigure_action"
+_RECONFIGURE_REDISCOVER = "rediscover"
+_RECONFIGURE_ADD_MANUAL = "add_manual"
+_RECONFIGURE_MANAGE = "manage"
 _DEFAULT_ADVANCED_SETTINGS = {
     CONF_DEVICE_NAME: "",
     CONF_LOCAL_IP: "",
@@ -93,6 +98,227 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         mode=SelectSelectorMode.DROPDOWN,
                     ))
         }),
+    )
+
+  async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None) -> FlowResult:
+    """Choose how to update devices on an existing config entry."""
+    if user_input is not None:
+      action = user_input[_RECONFIGURE_ACTION]
+      if action == _RECONFIGURE_REDISCOVER:
+        return await self.async_step_reconfigure_cloud()
+      if action == _RECONFIGURE_ADD_MANUAL:
+        return await self.async_step_reconfigure_manual()
+      return await self._async_step_reconfigure_manage()
+
+    return self.async_show_form(
+        step_id="reconfigure",
+        data_schema=vol.Schema({
+            vol.Required(_RECONFIGURE_ACTION):
+                SelectSelector(
+                    SelectSelectorConfig(
+                        options=[
+                            _RECONFIGURE_REDISCOVER,
+                            _RECONFIGURE_ADD_MANUAL,
+                            _RECONFIGURE_MANAGE,
+                        ],
+                        mode=SelectSelectorMode.DROPDOWN,
+                    )),
+        }),
+    )
+
+  async def _async_step_reconfigure_manage(self) -> FlowResult:
+    """Prepare device selection for removing devices from the current list."""
+    entry = self._get_reconfigure_entry()
+    self._reconfigure_entry = entry
+    self._reconfigure_candidates = list(entry.data[CONF_DEVICES])
+    self._reconfigure_preselected = [
+        device["mac_address"] for device in entry.data[CONF_DEVICES]
+    ]
+    self._reconfigure_data_updates = {}
+    return await self.async_step_reconfigure_select_devices()
+
+  async def async_step_reconfigure_cloud(
+      self, user_input: dict[str, Any] | None = None) -> FlowResult:
+    """Rediscover devices through the Hisense/Ayla account."""
+    entry = self._get_reconfigure_entry()
+    errors: dict[str, str] = {}
+    default_app = entry.data.get(CONF_APP, "hisense-eu")
+    if user_input is not None:
+      advanced_settings = user_input.get(_ADVANCED_SETTINGS, {})
+      try:
+        session = async_get_clientsession(self.hass)
+        discovered = await perform_discovery(
+            session,
+            user_input[CONF_APP],
+            user_input[CONF_USERNAME],
+            user_input[CONF_PASSWORD],
+            _blank_to_none(advanced_settings.get(CONF_DEVICE_NAME)),
+            False,
+        )
+      except Exception:
+        _LOGGER.exception("Hisense cloud discovery failed during reconfigure")
+        errors["base"] = "cannot_connect"
+      else:
+        if not discovered:
+          errors["base"] = "device_not_found"
+        else:
+          temp_type = advanced_settings.get(CONF_TEMP_TYPE, CONF_TEMP_TYPE_AUTO)
+          devices = [
+              _device_config_from_cloud(
+                  user_input[CONF_APP],
+                  device,
+                  _ha_temp_type(self.hass),
+                  temp_type,
+              ) for device in discovered
+          ]
+          self._reconfigure_entry = entry
+          self._reconfigure_candidates = _merge_device_lists(entry.data[CONF_DEVICES], devices)
+          self._reconfigure_preselected = [
+              device["mac_address"] for device in entry.data[CONF_DEVICES]
+          ]
+          self._reconfigure_data_updates = {
+              CONF_APP: user_input[CONF_APP],
+              CONF_LOCAL_IP: _blank_to_none(advanced_settings.get(CONF_LOCAL_IP)),
+              CONF_CALLBACK_PORT: advanced_settings.get(CONF_CALLBACK_PORT,
+                                                         DEFAULT_CALLBACK_PORT),
+              CONF_STATUS_INTERVAL: advanced_settings.get(CONF_STATUS_INTERVAL,
+                                                            DEFAULT_STATUS_INTERVAL),
+              CONF_TEMP_TYPE: temp_type,
+          }
+          return await self.async_step_reconfigure_select_devices()
+
+    return self.async_show_form(
+        step_id="reconfigure_cloud",
+        data_schema=vol.Schema({
+            vol.Required(CONF_APP, default=default_app):
+                SelectSelector(
+                    SelectSelectorConfig(
+                        options=sorted(SECRET_MAP),
+                        mode=SelectSelectorMode.DROPDOWN,
+                    )),
+            vol.Required(CONF_USERNAME): str,
+            vol.Required(CONF_PASSWORD):
+                TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD)),
+            vol.Required(_ADVANCED_SETTINGS, default=_DEFAULT_ADVANCED_SETTINGS):
+                section(
+                    vol.Schema({
+                        vol.Optional(CONF_DEVICE_NAME, default=""): str,
+                        vol.Optional(CONF_LOCAL_IP, default=""): str,
+                        vol.Optional(CONF_CALLBACK_PORT, default=DEFAULT_CALLBACK_PORT): int,
+                        vol.Optional(CONF_STATUS_INTERVAL, default=DEFAULT_STATUS_INTERVAL): int,
+                        vol.Optional(CONF_TEMP_TYPE, default=CONF_TEMP_TYPE_AUTO):
+                            SelectSelector(
+                                SelectSelectorConfig(
+                                    options=TEMP_TYPE_OPTIONS,
+                                    mode=SelectSelectorMode.DROPDOWN,
+                                )),
+                    }),
+                    {"collapsed": True},
+                ),
+        }),
+        errors=errors,
+    )
+
+  async def async_step_reconfigure_manual(
+      self, user_input: dict[str, Any] | None = None) -> FlowResult:
+    """Append a manually configured device to the existing config entry."""
+    entry = self._get_reconfigure_entry()
+    errors: dict[str, str] = {}
+    default_app = entry.data.get(CONF_APP, "hisense-eu")
+    if user_input is not None:
+      try:
+        device = _device_config_from_manual(user_input)
+      except (KeyError, ValueError):
+        errors["base"] = "invalid_manual_config"
+      else:
+        existing_macs = {configured["mac_address"] for configured in entry.data[CONF_DEVICES]}
+        if device["mac_address"] in existing_macs:
+          errors["base"] = "duplicate_mac"
+        else:
+          selected_devices = list(entry.data[CONF_DEVICES]) + [device]
+          return await self._async_apply_device_selection(entry, selected_devices)
+
+    return self.async_show_form(
+        step_id="reconfigure_manual",
+        data_schema=vol.Schema({
+            vol.Required(CONF_NAME): str,
+            vol.Required(CONF_APP, default=default_app):
+                SelectSelector(
+                    SelectSelectorConfig(
+                        options=sorted(SECRET_MAP),
+                        mode=SelectSelectorMode.DROPDOWN,
+                    )),
+            vol.Required(CONF_HOST): str,
+            vol.Required(CONF_MAC_ADDRESS): str,
+            vol.Required(CONF_LANIP_KEY): str,
+            vol.Required(CONF_LANIP_KEY_ID): int,
+            vol.Required(CONF_MODEL, default="AEH-W4E1"): str,
+            vol.Optional(CONF_SW_VERSION, default=""): str,
+            vol.Required(CONF_TEMP_TYPE, default=_ha_temp_type(self.hass)): vol.In(["C", "F"]),
+        }),
+        errors=errors,
+    )
+
+  async def async_step_reconfigure_select_devices(
+      self, user_input: dict[str, Any] | None = None) -> FlowResult:
+    """Select which devices to keep on an existing config entry."""
+    entry = getattr(self, "_reconfigure_entry", None)
+    if entry is None:
+      return await self.async_step_reconfigure()
+
+    candidates = self._reconfigure_candidates
+    preselected = self._reconfigure_preselected
+    data_updates = getattr(self, "_reconfigure_data_updates", {})
+
+    errors: dict[str, str] = {}
+    if user_input is not None:
+      selected = set(user_input.get(_SELECTED_DEVICES, []))
+      selected_devices = [
+          device for device in candidates if device["mac_address"] in selected
+      ]
+      if not selected_devices:
+        errors["base"] = "no_device_selected"
+      else:
+        return await self._async_apply_device_selection(
+            entry,
+            selected_devices,
+            data_updates,
+        )
+
+    return self.async_show_form(
+        step_id="reconfigure_select_devices",
+        data_schema=vol.Schema({
+            vol.Required(_SELECTED_DEVICES, default=preselected):
+                SelectSelector(
+                    SelectSelectorConfig(
+                        options=[_device_option(device) for device in candidates],
+                        multiple=True,
+                        mode=SelectSelectorMode.DROPDOWN,
+                    )),
+        }),
+        errors=errors,
+    )
+
+  async def _async_apply_device_selection(
+      self,
+      entry: config_entries.ConfigEntry,
+      selected_devices: list[dict[str, Any]],
+      data_updates: dict[str, Any] | None = None,
+  ) -> FlowResult:
+    """Update the config entry device list and reload."""
+    old_macs = {device["mac_address"] for device in entry.data[CONF_DEVICES]}
+    new_macs = {device["mac_address"] for device in selected_devices}
+    _remove_orphaned_devices(self.hass, old_macs - new_macs)
+
+    updates: dict[str, Any] = {CONF_DEVICES: selected_devices}
+    if data_updates:
+      updates.update(data_updates)
+
+    await self.async_set_unique_id(_unique_id(selected_devices))
+    return self.async_update_reload_and_abort(
+        entry,
+        data_updates=updates,
+        title=", ".join(device["name"] for device in selected_devices),
     )
 
   async def async_step_cloud(self, user_input: dict[str, Any] | None = None):
@@ -336,6 +562,27 @@ def _normalize_mac(mac_address: str) -> str:
 def _device_option(device: dict[str, Any]) -> dict[str, str]:
   label = f"{device['name']} ({device['ip_address']})"
   return {"value": device["mac_address"], "label": label}
+
+
+def _merge_device_lists(
+    existing: list[dict[str, Any]],
+    discovered: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+  """Union device lists by MAC address; discovered cloud data wins for matches."""
+  by_mac = {device["mac_address"]: dict(device) for device in existing}
+  for device in discovered:
+    by_mac[device["mac_address"]] = device
+  return list(by_mac.values())
+
+
+def _remove_orphaned_devices(hass, removed_macs: set[str]) -> None:
+  """Remove device registry entries for devices no longer configured."""
+  if not removed_macs:
+    return
+  registry = dr.async_get(hass)
+  for mac in removed_macs:
+    if device := registry.async_get_device(identifiers={(DOMAIN, mac)}):
+      registry.async_remove_device(device.id)
 
 
 def _ha_temp_type(hass) -> str:
