@@ -10,7 +10,7 @@
       },
       "cloud": {
         "title": "Discover from Hisense app",
-        "description": "Enter the app code, username, and password for the mobile app account where your air conditioner is paired. For choosing the correct app code, see [Supported App Codes](https://github.com/cvladan/hassio-hacs-hisense-aircon#supported-app-codes). Advanced Settings are optional and can stay collapsed for most installs.",
+        "description": "Create a cloud account hub linked to your mobile app account. Devices can only be added through cloud discovery. For choosing the correct app code, see [Supported App Codes](https://github.com/cvladan/hassio-hacs-hisense-aircon#supported-app-codes). Advanced Settings are optional and can stay collapsed for most installs.",
         "data": {
           "app": "App code",
           "username": "Username",
@@ -42,13 +42,14 @@
       },
       "select_devices": {
         "title": "Select Hisense devices",
-        "description": "Choose one or more discovered air conditioners to add. All discovered devices are selected by default.",
+        "description": "Choose one or more discovered air conditioners to add to this cloud account hub. All discovered devices are selected by default.",
         "data": {
           "selected_devices": "Devices"
         }
       },
       "manual": {
         "title": "Manual LAN key setup",
+        "description": "Create a manual hub for a single air conditioner using its LAN key. To add another manual device, create another hub.",
         "data": {
           "name": "Device name",
           "app": "App code",
@@ -63,16 +64,71 @@
           "callback_port": "Home Assistant HTTP port",
           "status_interval": "Status refresh interval"
         }
+      },
+      "reconfigure": {
+        "title": "Manage cloud account hub",
+        "description": "Rediscover devices from your app account or remove devices from this hub.",
+        "data": {
+          "reconfigure_action": "Action"
+        }
+      },
+      "reconfigure_select_devices": {
+        "title": "Select Hisense devices",
+        "description": "Choose which devices belong to this cloud account hub. Currently configured devices stay selected. Deselect a device to remove it from Home Assistant.",
+        "data": {
+          "selected_devices": "Devices"
+        }
+      },
+      "reconfigure_remove_devices": {
+        "title": "Remove devices",
+        "description": "Choose which devices to keep on this cloud account hub. At least one device must remain.",
+        "data": {
+          "selected_devices": "Devices to keep"
+        }
+      },
+      "reconfigure_manual": {
+        "title": "Edit manual device",
+        "description": "Update the connection details for this manual hub's device.",
+        "data": {
+          "name": "Device name",
+          "app": "App code",
+          "host": "Device IP address",
+          "mac_address": "MAC address",
+          "lanip_key": "LAN IP key",
+          "lanip_key_id": "LAN IP key ID",
+          "model": "OEM model",
+          "sw_version": "Software version",
+          "temp_type": "Temperature unit",
+          "local_ip": "Home Assistant local IP address",
+          "callback_port": "Home Assistant HTTP port",
+          "status_interval": "Status refresh interval"
+        }
+      },
+      "reauth": {
+        "title": "Update cloud account credentials",
+        "description": "Enter the current app credentials for this cloud account hub. The username must match the account already configured.",
+        "data": {
+          "app": "App code",
+          "username": "Username",
+          "password": "Password"
+        }
       }
     },
     "error": {
       "cannot_connect": "Could not connect to the Hisense/Ayla service or the credentials were rejected.",
       "device_not_found": "No matching device was found.",
       "invalid_manual_config": "Manual configuration is incomplete or invalid.",
-      "no_device_selected": "Select at least one device."
+      "no_device_selected": "Select at least one device.",
+      "duplicate_mac": "One or more selected devices are already configured in another hub.",
+      "duplicate_account": "A hub for this app account is already configured.",
+      "account_mismatch": "The username must match the cloud account already configured for this hub.",
+      "manual_single_device": "Manual hubs must contain exactly one device."
     },
     "abort": {
-      "already_configured": "This device is already configured."
+      "already_configured": "This hub or device is already configured.",
+      "reconfigure_successful": "Hub configuration updated successfully.",
+      "reauth_successful": "Cloud account credentials updated successfully.",
+      "manual_single_device": "This manual hub does not contain exactly one device."
     }
   },
   "options": {
