@@ -117,7 +117,7 @@ Enter:
 
 ## Managing Devices After Setup
 
-Open the integration entry menu in **Settings > Devices & services** and choose **Reconfigure**. You can discover more devices from an app account, add a device with a LAN key, or choose which devices to keep. Cloud discovery asks for credentials each time and does not save the password. Removing the last device requires deleting the configuration entry.
+Open the integration entry menu in **Settings > Devices & services** and choose **Reconfigure**. You can discover more devices from an app account, add a device with a LAN key, choose which devices to keep, or change the IP address of one device. Cloud discovery asks for credentials each time and does not save the password. Removing the last device requires deleting the configuration entry.
 
 You can also add another integration entry for a different account or a manual device. Each device must have a unique MAC address and IP address across all entries. Runtime options such as the callback address apply to the entry and are edited through **Configure**.
 
@@ -250,3 +250,18 @@ This project is not affiliated with Hisense, Ayla Networks, Fujitsu, or their su
 ## Technical Notes
 
 This integration uses Home Assistant's shared `aiohttp` client session and HTTP view stack. `aiohttp` is managed by Home Assistant itself and is not pinned in this integration's `manifest.json` requirements.
+
+## Diagnostics and Development
+
+Download diagnostics from the integration entry menu. The export includes reported protocol values, device models, availability, and queue lengths. It excludes account credentials, LAN keys, device names, MAC addresses, IP addresses, and cloud device identifiers. Enable `custom_components.hisense_aircon: debug` for integration logs.
+
+A reported electricity value is still a raw protocol value. No power or energy unit is assigned without a verified scale for the device model. Signature failures still require investigation of the device session and network. The parser and logging changes do not establish a fix for every cause of those failures.
+
+Run the checks with Python 3.14:
+
+```sh
+python -m pip install homeassistant==2026.9.1 dataclasses-json==0.6.7 getmac==0.9.5 pycryptodome==3.23.0
+python -m unittest discover -s tests -v
+```
+
+The checks use Home Assistant classes and a local aiohttp test server. They do not contact the cloud or a physical air conditioner. Real device checks are still needed for Quiet behavior, recovery after connection loss, and cloud discovery across supported apps.

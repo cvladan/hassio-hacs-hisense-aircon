@@ -23,3 +23,9 @@ class MetadataTests(unittest.TestCase):
       self.assertEqual(keys(english), keys(translation), path.name)
       self.assertEqual(set(translation['entity']['select']['sleep_mode']['state']),
                        {'stop', 'one', 'two', 'three', 'four'})
+
+  def test_project_metadata_and_changelog(self):
+    manifest = json.loads((COMPONENT / 'manifest.json').read_text())
+    self.assertEqual(manifest['codeowners'], ['@cvladan'])
+    self.assertIn(f"## {manifest['version']}\n", (ROOT / 'CHANGELOG.md').read_text())
+    self.assertFalse(manifest['single_config_entry'])

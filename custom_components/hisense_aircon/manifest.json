@@ -18,5 +18,5 @@
     "pycryptodome==3.23.0"
   ],
   "single_config_entry": false,
-  "version": "1.1.7"
+  "version": "1.2.0"
 }

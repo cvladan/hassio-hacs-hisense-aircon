@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.2.0
+
+- Add multiple configuration entries and device management through Reconfigure. Cloud passwords are not saved.
+- Route device callbacks to the correct configuration and allow changing one device IP address.
+- Handle unknown control fields without losing Quiet, temperature, or mode updates.
+- Preserve pending changes when commands are queued together or older device reports arrive.
+- Send properties outside the packed control register as standalone commands.
+- Retry transient registration failures before marking devices unavailable.
+- Keep unreported sensor values unknown and distinguish device reports from locally sent commands.
+- Validate LAN message envelopes and body limits, redact diagnostics, and restore cloud certificate verification.
+- Remove standalone controls covered by climate. See the README migration table before updating automations.
+- Add Italian translations, readable Sleep profile labels, and the community logo.
+- Accept the converted 16 C lower bound for Fahrenheit devices while preserving device precision.
+- Add regression checks against Home Assistant 2026.9.1.
+
+Thanks to Piotr Szulc (@szupi-ipuzs), Tiziano (@wifi75), Chaim (@Gchaimke), and @castiel10k for the original contributions and problem reports. Individual commits identify the source changes.
+
 ## 1.1.7
 
 - Run the LAN notifier and status polling loops as background tasks so they do not delay Home Assistant startup.
