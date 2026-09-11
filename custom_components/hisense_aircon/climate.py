@@ -97,7 +97,9 @@ class HisenseClimate(HisenseEntity, ClimateEntity):
   @property
   def min_temp(self) -> float:
     """Return minimum target temperature."""
-    return 61 if self.device.is_fahrenheit else 16
+    # Home Assistant converts its displayed 16 C lower bound back to 60.8 F.
+    # Command precision rounds that value to the supported 61 F setpoint.
+    return 60.8 if self.device.is_fahrenheit else 16
 
   @property
   def max_temp(self) -> float:

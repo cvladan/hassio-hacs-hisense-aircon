@@ -83,3 +83,23 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
     self.assertEqual(control_value.get_fan_lr(packed).name, 'ON')
     names = [c.command['properties'][0]['property']['name'] for c in unit.commands_queue.queue]
     self.assertIn('t_temp_eight', names)
+
+  async def test_home_assistant_temperature_conversion_boundaries(self):
+    from types import SimpleNamespace
+    from homeassistant.components.climate import async_service_temperature_set
+    from homeassistant.core import ServiceCall
+    from homeassistant.exceptions import ServiceValidationError
+    from custom_components.hisense_aircon.climate import HisenseClimate
+    for native, display, value, expected in [('F', '°C', 16, 61), ('F', '°C', 30, 86),
+                                             ('C', '°F', 61, 16), ('C', '°F', 86, 30)]:
+      unit = Device.create({**device(), 'temp_type': native}, lambda: None)
+      climate = HisenseClimate(SimpleNamespace(), unit)
+      climate.hass = SimpleNamespace(config=SimpleNamespace(units=SimpleNamespace(temperature_unit=display)))
+      climate.async_write_ha_state = lambda: None
+      await async_service_temperature_set(climate, ServiceCall(climate.hass, 'climate', 'set_temperature',
+                                                               {'temperature': value}))
+      queued = unit.commands_queue.get_nowait().command['properties'][0]['property']['value']
+      self.assertEqual(queued, expected)
+    with self.assertRaises(ServiceValidationError):
+      await async_service_temperature_set(climate, ServiceCall(climate.hass, 'climate', 'set_temperature',
+                                                               {'temperature': 40}))
