@@ -55,3 +55,30 @@ class EntityTests(unittest.TestCase):
     self.assertNotIn('af_horizontal_swing', climate_managed_properties(fgl))
     humidifier = Device.create({**device(), 'model': '0001-0401-0001'}, lambda: None)
     self.assertEqual(climate_managed_properties(humidifier), set())
+
+  def test_unchanged_reports_notify_once_but_first_actual_report_is_kept(self):
+    from unittest.mock import Mock
+    from custom_components.hisense_aircon.properties import FanSpeed
+    from custom_components.hisense_aircon import control_value
+    unit = Device.create(device(), lambda: None)
+    listener = Mock()
+    unit.add_property_change_listener(listener)
+    unit.update_property('f_electricity', 100)
+    unit.update_property('f_electricity', 100)
+    self.assertEqual(listener.call_count, 1)
+    listener.reset_mock()
+    unit.update_property('t_temp', 23, reported=False)
+    unit.update_property('t_temp', 23)
+    unit.update_property('t_temp', 23)
+    self.assertEqual(listener.call_count, 2)
+    self.assertEqual(unit.get_reported_property('t_temp'), 23)
+    listener.reset_mock()
+    unit.update_property('t_fan_speed', None)
+    unit.update_property('t_fan_speed', None)
+    unit.update_property('t_fan_speed', FanSpeed.AUTO)
+    self.assertEqual(listener.call_count, 2)
+    packed = control_value.set_temp(0, 24)
+    unit.update_property('t_control_value', packed)
+    unit.update_property('t_temp', 22)
+    unit.update_property('t_control_value', packed)
+    self.assertEqual(unit.get_reported_property('t_temp'), 24)

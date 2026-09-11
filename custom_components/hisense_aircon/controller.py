@@ -12,7 +12,7 @@ from homeassistant.components.http import HomeAssistantView
 from homeassistant.components.network import async_get_source_ip
 from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
@@ -121,6 +121,7 @@ class HisenseController:
   def _notify_device(self) -> None:
     self._notifier.notify()
 
+  @callback
   def _handle_property_update(
       self,
       mac_address: str,

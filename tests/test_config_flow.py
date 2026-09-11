@@ -282,3 +282,20 @@ class ConfigFlowTests(unittest.IsolatedAsyncioTestCase):
     self.assertTrue(all(task.done() for task in tasks))
     self.assertFalse(controller._tasks)
     self.assertFalse(controller.devices[0]._property_change_listeners)
+
+  async def test_entity_dispatcher_uses_event_loop_callbacks(self):
+    from unittest.mock import Mock
+    from homeassistant.core import get_hassjob_callable_job_type, HassJobType
+    from custom_components.hisense_aircon.entity import HisensePropertyEntity
+    from dataclasses import fields
+    controller = HisenseController(self.hass, self.entry)
+    unit = controller.devices[0]
+    field = next(f for f in fields(unit.get_all_properties()) if f.name == 'f_voltage')
+    entity = HisensePropertyEntity(controller, unit, field)
+    entity.hass = self.hass
+    entity.async_write_ha_state = Mock()
+    self.assertEqual(get_hassjob_callable_job_type(entity._handle_device_update), HassJobType.Callback)
+    await entity.async_added_to_hass()
+    controller._handle_property_update(unit.mac_address, 'f_voltage', 230)
+    await self.hass.async_block_till_done()
+    entity.async_write_ha_state.assert_called_once()

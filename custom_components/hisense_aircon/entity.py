@@ -6,6 +6,7 @@ from dataclasses import Field, fields
 import enum
 from typing import Any
 
+from homeassistant.core import callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import Entity
@@ -100,8 +101,9 @@ class HisenseEntity(Entity):
             self._handle_device_update,
         ))
 
+  @callback
   def _handle_device_update(self, prop_name: str, value: Any) -> None:
-    self.hass.loop.call_soon_threadsafe(self.async_write_ha_state)
+    self.async_write_ha_state()
 
 
 class HisensePropertyEntity(HisenseEntity):
@@ -131,9 +133,10 @@ class HisensePropertyEntity(HisenseEntity):
       attrs["description"] = description
     return attrs
 
+  @callback
   def _handle_device_update(self, prop_name: str, value: Any) -> None:
     if prop_name in (self.prop_name, "available"):
-      self.hass.loop.call_soon_threadsafe(self.async_write_ha_state)
+      self.async_write_ha_state()
 
 
 def climate_managed_properties(device: Device) -> set[str]:
