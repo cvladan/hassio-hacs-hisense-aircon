@@ -9,11 +9,8 @@ from homeassistant.components.climate import (
     ClimateEntity,
     ClimateEntityFeature,
     HVACMode,
-    SWING_BOTH,
-    SWING_HORIZONTAL,
     SWING_OFF,
     SWING_ON,
-    SWING_VERTICAL,
 )
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant
@@ -22,7 +19,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .aircon import Device
 from .controller import HisenseConfigEntry, HisenseController
 from .entity import HisenseEntity
-from .properties import AcWorkMode, AirFlow, FglOperationMode, Power
+from .properties import AcWorkMode, FglOperationMode, Power
 
 HVAC_TO_DEVICE = {
     HVACMode.AUTO: "AUTO",
@@ -83,8 +80,10 @@ class HisenseClimate(HisenseEntity, ClimateEntity):
       features |= ClimateEntityFeature.TARGET_TEMPERATURE
     if "fan_speed" in self.device.topics:
       features |= ClimateEntityFeature.FAN_MODE
-    if self._supports_swing:
+    if "swing_mode" in self.device.topics:
       features |= ClimateEntityFeature.SWING_MODE
+    if "swing_horizontal_mode" in self.device.topics:
+      features |= ClimateEntityFeature.SWING_HORIZONTAL_MODE
     return features
 
   @property
@@ -167,44 +166,27 @@ class HisenseClimate(HisenseEntity, ClimateEntity):
 
   @property
   def swing_modes(self) -> list[str] | None:
-    """Return supported swing modes."""
-    if not self._supports_swing:
-      return None
-    if self._supports_horizontal_swing:
-      return [SWING_OFF, SWING_VERTICAL, SWING_HORIZONTAL, SWING_BOTH]
-    return [SWING_OFF, SWING_ON]
+    """Return supported vertical swing modes."""
+    return [SWING_OFF, SWING_ON] if "swing_mode" in self.device.topics else None
 
   @property
   def swing_mode(self) -> str | None:
-    """Return current swing mode."""
-    vertical = self.device.get_known_property("t_fan_power")
-    horizontal = self.device.get_known_property("t_fan_leftright")
-    if isinstance(vertical, AirFlow) or isinstance(horizontal, AirFlow):
-      vertical_on = vertical == AirFlow.ON
-      horizontal_on = horizontal == AirFlow.ON
-      if vertical_on and horizontal_on:
-        return SWING_BOTH
-      if vertical_on:
-        return SWING_VERTICAL
-      if horizontal_on:
-        return SWING_HORIZONTAL
-      return SWING_OFF
-
+    """Return vertical swing without inferring the other axis."""
     prop = self.device.topics.get("swing_mode")
     value = self.device.get_known_property(prop) if prop else None
-    if value == AirFlow.ON:
-      return SWING_ON
-    if value == AirFlow.OFF:
-      return SWING_OFF
-    return None
+    return value.name.lower() if value is not None else None
 
   @property
-  def _supports_swing(self) -> bool:
-    return "swing_mode" in self.device.topics or self._supports_horizontal_swing
+  def swing_horizontal_modes(self) -> list[str] | None:
+    """Return supported horizontal swing modes."""
+    return [SWING_OFF, SWING_ON] if "swing_horizontal_mode" in self.device.topics else None
 
   @property
-  def _supports_horizontal_swing(self) -> bool:
-    return self.device.get_property_type("t_fan_leftright") is not None
+  def swing_horizontal_mode(self) -> str | None:
+    """Return horizontal swing independently of vertical swing."""
+    prop = self.device.topics.get("swing_horizontal_mode")
+    value = self.device.get_known_property(prop) if prop else None
+    return value.name.lower() if value is not None else None
 
   async def async_set_temperature(self, **kwargs: Any) -> None:
     """Set target temperature."""
@@ -236,15 +218,11 @@ class HisenseClimate(HisenseEntity, ClimateEntity):
     self.async_write_ha_state()
 
   async def async_set_swing_mode(self, swing_mode: str) -> None:
-    """Set swing mode."""
-    if self._supports_horizontal_swing:
-      vertical = AirFlow.ON if swing_mode in (SWING_VERTICAL, SWING_BOTH) else AirFlow.OFF
-      horizontal = AirFlow.ON if swing_mode in (SWING_HORIZONTAL, SWING_BOTH) else AirFlow.OFF
-      self.device.queue_command("t_fan_power", vertical.name)
-      self.device.queue_command("t_fan_leftright", horizontal.name)
-    else:
-      self.device.queue_command(
-          self.device.topics["swing_mode"],
-          "ON" if swing_mode == SWING_ON else "OFF",
-      )
+    """Set vertical swing without changing horizontal swing."""
+    self.device.queue_command(self.device.topics["swing_mode"], swing_mode.upper())
+    self.async_write_ha_state()
+
+  async def async_set_swing_horizontal_mode(self, swing_horizontal_mode: str) -> None:
+    """Set horizontal swing without changing vertical swing."""
+    self.device.queue_command(self.device.topics["swing_horizontal_mode"], swing_horizontal_mode.upper())
     self.async_write_ha_state()

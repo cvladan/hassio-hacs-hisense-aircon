@@ -140,10 +140,9 @@ def climate_managed_properties(device: Device) -> set[str]:
   """Return only controls actually provided by this device's climate entity."""
   if not {"work_mode", "temp"} <= device.topics.keys():
     return set()
-  names = {device.topics[key] for key in ("power", "work_mode", "temp", "fan_speed", "swing_mode")
+  names = {device.topics[key] for key in ("power", "work_mode", "temp", "fan_speed",
+                                                      "swing_mode", "swing_horizontal_mode")
            if key in device.topics}
-  if device.get_property_type("t_fan_leftright") is not None:
-    names.add("t_fan_leftright")
   return names
 
 

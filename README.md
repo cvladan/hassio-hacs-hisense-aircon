@@ -131,9 +131,21 @@ The climate entity now provides the main controls. The matching standalone entit
 | Work mode select | `climate.set_hvac_mode`, with `hvac_mode` such as `cool` or `heat` |
 | Target temperature number | `climate.set_temperature`, with `temperature` |
 | Fan speed select | `climate.set_fan_mode`, using the entity's `fan_modes` values |
-| Vertical or horizontal swing switch | `climate.set_swing_mode`, using the entity's `swing_modes` values |
+| Vertical swing switch | `climate.set_swing_mode`, with `swing_mode: on` or `off` |
+| Horizontal swing switch | `climate.set_swing_horizontal_mode`, with `swing_horizontal_mode: on` or `off` |
 
-For a Hisense device, use `off`, `vertical`, `horizontal`, or `both` for swing. Fujitsu devices with vertical swing use `off` or `on`. Climate state attributes replace reads of these standalone controls. `climate.turn_on` selects auto mode; use `climate.set_hvac_mode` if an automation needs a specific mode.
+Vertical and horizontal swing now have separate climate controls. Each action changes only its own direction. Fujitsu devices expose only their supported climate controls. Climate state attributes replace reads of the removed standalone controls.
+
+When upgrading from 1.2, replace combined Hisense swing actions with these two actions. Use `swing_mode` for the vertical action and `swing_horizontal_mode` for the horizontal action:
+
+| Previous `swing_mode` | New vertical value | New horizontal value |
+| --- | --- | --- |
+| `off` | `off` | `off` |
+| `vertical` | `on` | `off` |
+| `horizontal` | `off` | `on` |
+| `both` | `on` | `on` |
+
+The new `climate.set_swing_mode` with `off` stops vertical swing only. To stop both directions, send both actions with `off`. Entity IDs stay the same. `climate.turn_on` selects auto mode; use `climate.set_hvac_mode` if an automation needs a specific mode.
 
 Sleep, Quiet, Eco, Super, backlight, swing angle, and the device display temperature unit remain separate controls. Humidifier controls also remain. Fujitsu controls that the climate entity does not provide, such as horizontal louver control, are kept.
 

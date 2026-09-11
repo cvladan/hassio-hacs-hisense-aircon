@@ -103,3 +103,30 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
     with self.assertRaises(ServiceValidationError):
       await async_service_temperature_set(climate, ServiceCall(climate.hass, 'climate', 'set_temperature',
                                                                {'temperature': 40}))
+
+  async def test_native_swing_services_change_only_the_requested_axis(self):
+    from homeassistant.components.climate import ClimateEntityFeature
+    from custom_components.hisense_aircon.climate import HisenseClimate
+    from custom_components.hisense_aircon.properties import AirFlow
+    unit = ac()
+    climate = HisenseClimate(Mock(), unit)
+    climate.async_write_ha_state = Mock()
+    self.assertIn(ClimateEntityFeature.SWING_HORIZONTAL_MODE, climate.supported_features)
+    for axis, other, service in [('t_fan_power', 't_fan_leftright', climate.async_handle_set_swing_mode_service),
+                                 ('t_fan_leftright', 't_fan_power', climate.async_handle_set_swing_horizontal_mode_service)]:
+      for value in ('on', 'off'):
+        before = unit.get_property(other)
+        await service(value)
+        command = unit.commands_queue.get_nowait()
+        command.updater()
+        self.assertEqual(unit.get_property(axis), AirFlow[value.upper()])
+        self.assertEqual(unit.get_property(other), before)
+    unit = Device.create(device(), lambda: None)
+    climate = HisenseClimate(Mock(), unit)
+    unit.update_property('t_fan_leftright', AirFlow.ON)
+    self.assertIsNone(climate.swing_mode)
+    self.assertEqual(climate.swing_horizontal_mode, 'on')
+    for model, vertical in [('AP-WA1E', True), ('AP-WB1E', False)]:
+      climate = HisenseClimate(Mock(), Device.create({**device(), 'model': model}, lambda: None))
+      self.assertEqual(ClimateEntityFeature.SWING_MODE in climate.supported_features, vertical)
+      self.assertNotIn(ClimateEntityFeature.SWING_HORIZONTAL_MODE, climate.supported_features)
