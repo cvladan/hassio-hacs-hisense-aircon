@@ -6,6 +6,7 @@ from ipaddress import IPv4Address
 import logging
 from typing import Any
 
+from aiohttp import ClientError
 import voluptuous as vol
 
 from homeassistant import config_entries
@@ -53,6 +54,7 @@ from .const import (
     TEMP_TYPE_OPTIONS,
 )
 from .discovery import perform_discovery
+from .error import Error, InvalidAuth
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -200,8 +202,13 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 temp_type,
             ) for device in discovered
         ]
+      except InvalidAuth:
+        errors["base"] = "invalid_auth"
+      except (Error, ClientError, TimeoutError, KeyError, ValueError, TypeError) as ex:
+        _LOGGER.warning("Hisense cloud discovery failed (%s)", type(ex).__name__)
+        errors["base"] = "cannot_connect"
       except Exception:
-        _LOGGER.exception("Hisense cloud discovery failed")
+        _LOGGER.exception("Unexpected Hisense cloud discovery failure")
         errors["base"] = "cannot_connect"
       else:
         if not discovered:

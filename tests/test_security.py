@@ -2,7 +2,6 @@
 
 import base64
 import json
-import ssl
 from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
@@ -63,9 +62,8 @@ class SecurityTests(unittest.IsolatedAsyncioTestCase):
     with patch.object(discovery, '_sign_in', AsyncMock(return_value='token')) as login, patch.object(
         discovery, '_get_devices', AsyncMock(return_value=[])):
       await discovery.perform_discovery(Mock(), 'hisense-eu', 'user', 'password')
-    context = login.call_args.args[-1]
-    self.assertTrue(context.check_hostname)
-    self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
+    self.assertEqual(len(login.call_args.args), 6)
+    self.assertNotIn("ssl_context", login.call_args.kwargs)
     self.unit.update_property('f_voltage', 230)
     entry = SimpleNamespace(entry_id='test')
     hass = SimpleNamespace(data={'hisense_aircon': {'test': SimpleNamespace(devices=[self.unit])}})
@@ -81,3 +79,22 @@ class SecurityTests(unittest.IsolatedAsyncioTestCase):
     with patch.object(self.handlers, '_decrypt_and_validate', return_value={'seq_no': 5, 'data': 'bad'}):
       response = await self.client.post('/update', json={})
     self.assertEqual(response.status, 400)
+
+  async def test_cloud_requests_preserve_session_tls_and_bound_waits(self):
+    from custom_components.hisense_aircon.error import InvalidAuth
+    response = Mock(status=200, text=AsyncMock(return_value='{"access_token":"token"}'))
+    request = Mock(return_value=AsyncMock(__aenter__=AsyncMock(return_value=response)))
+    session = Mock(request=request, get=request)
+    self.assertEqual(await discovery._sign_in('u', 'p', 'example.invalid', 'app', 'secret', session), 'token')
+    response.text.return_value = '[]'
+    self.assertEqual(await discovery._get_devices('example.invalid', 'token', {}, session), [])
+    response.text.return_value = '{"lanip":{}}'
+    await discovery._get_lanip('example.invalid', 'dsn', {}, session)
+    await discovery._get_device_properties('example.invalid', 'dsn', {}, session)
+    for call in request.call_args_list:
+      self.assertNotIn('ssl', call.kwargs)
+      self.assertEqual(call.kwargs['timeout'].total, 15)
+    for status in (401, 403):
+      response.status = status
+      with self.assertRaises(InvalidAuth):
+        await discovery._sign_in('u', 'p', 'example.invalid', 'app', 'secret', session)

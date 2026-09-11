@@ -5,18 +5,19 @@ from getmac import get_mac_address
 from http import HTTPStatus
 import json
 import logging
-import ssl
 
 from .app_mappings import *
-from .error import Error
+from .error import Error, InvalidAuth
 
 _LOGGER = logging.getLogger(__name__)
+
+_REQUEST_TIMEOUT = aiohttp.ClientTimeout(total=15)
 
 _USER_AGENT = 'Dalvik/2.1.0 (Linux; U; Android 9.0; SM-G850F Build/LRX22G)'
 
 
 async def _sign_in(user: str, passwd: str, user_server: str, app_id: str, app_secret: str,
-                   session: aiohttp.ClientSession, ssl_context: ssl.SSLContext):
+                   session: aiohttp.ClientSession):
   query = {
       'user': {
           'email': user,
@@ -41,7 +42,9 @@ async def _sign_in(user: str, passwd: str, user_server: str, app_id: str, app_se
                              f'https://{user_server}/users/sign_in.json',
                              json=query,
                              headers=headers,
-                             ssl=ssl_context) as resp:
+                             timeout=_REQUEST_TIMEOUT) as resp:
+    if resp.status in (HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN):
+      raise InvalidAuth('Cloud sign in was rejected.')
     if resp.status != HTTPStatus.OK.value:
       raise Error('Failed to login to Hisense server: '
                   f'Status {resp.status}: {resp.reason!r}')
@@ -55,11 +58,11 @@ async def _sign_in(user: str, passwd: str, user_server: str, app_id: str, app_se
 
 
 async def _get_devices(devices_server: str, access_token: str, headers: dict,
-                       session: aiohttp.ClientSession, ssl_context: ssl.SSLContext):
+                       session: aiohttp.ClientSession):
   _LOGGER.debug('Fetching account devices')
   async with session.get(f'https://{devices_server}/apiv1/devices.json',
                          headers=headers,
-                         ssl=ssl_context) as resp:
+                         timeout=_REQUEST_TIMEOUT) as resp:
     if resp.status != HTTPStatus.OK.value:
       raise Error('Failed to get devices data from Hisense server: '
                   f'Status {resp.status}: {resp.reason!r}')
@@ -69,17 +72,14 @@ async def _get_devices(devices_server: str, access_token: str, headers: dict,
     except (ValueError, UnicodeDecodeError):
       _LOGGER.warning('Invalid devices response from Hisense server')
       raise Error('Failed to parse devices data from Hisense server.')
-    if not devices:
-      raise Error('No device is configured in the selected Hisense app account.')
     return devices
 
 
-async def _get_lanip(devices_server: str, dsn: str, headers: dict, session: aiohttp.ClientSession,
-                     ssl_context: ssl.SSLContext):
+async def _get_lanip(devices_server: str, dsn: str, headers: dict, session: aiohttp.ClientSession):
   _LOGGER.debug('Fetching device LAN configuration')
   async with session.get(f'https://{devices_server}/apiv1/dsns/{dsn}/lan.json',
                          headers=headers,
-                         ssl=ssl_context) as resp:
+                         timeout=_REQUEST_TIMEOUT) as resp:
     if resp.status != HTTPStatus.OK.value:
       raise Error(f'Failed to get LAN data from Hisense server: {resp.status} {resp.reason!r}')
     resp_data = await resp.text()
@@ -87,11 +87,11 @@ async def _get_lanip(devices_server: str, dsn: str, headers: dict, session: aioh
 
 
 async def _get_device_properties(devices_server: str, dsn: str, headers: dict,
-                                 session: aiohttp.ClientSession, ssl_context: ssl.SSLContext):
+                                 session: aiohttp.ClientSession):
   _LOGGER.debug('Fetching device properties')
   async with session.get(f'https://{devices_server}/apiv1/dsns/{dsn}/properties.json',
                          headers=headers,
-                         ssl=ssl_context) as resp:
+                         timeout=_REQUEST_TIMEOUT) as resp:
     if resp.status != HTTPStatus.OK.value:
       raise Error(
           f'Failed to get properties data from Hisense server: {resp.status} {resp.reason!r}')
@@ -126,9 +126,7 @@ async def perform_discovery(session: aiohttp.ClientSession,
   user_server = AYLA_USER_SERVERS[region]
   devices_server = AYLA_DEVICES_SERVERS[region]
 
-  ssl_context = ssl.create_default_context()
-
-  access_token = await _sign_in(user, passwd, user_server, app_id, app_secret, session, ssl_context)
+  access_token = await _sign_in(user, passwd, user_server, app_id, app_secret, session)
 
   result = []
   headers = {
@@ -139,17 +137,17 @@ async def perform_discovery(session: aiohttp.ClientSession,
       'Host': devices_server,
       'Accept-Encoding': 'gzip'
   }
-  devices = await _get_devices(devices_server, access_token, headers, session, ssl_context)
+  devices = await _get_devices(devices_server, access_token, headers, session)
   _LOGGER.debug('Found %d devices', len(devices))
   for device in devices:
     device_data = device['device']
     if device_filter and device_filter != device_data['product_name']:
       continue
     dsn = device_data['dsn']
-    lanip = await _get_lanip(devices_server, dsn, headers, session, ssl_context)
+    lanip = await _get_lanip(devices_server, dsn, headers, session)
     properties_text = ''
     if properties_filter:
-      props = await _get_device_properties(devices_server, dsn, headers, session, ssl_context)
+      props = await _get_device_properties(devices_server, dsn, headers, session)
       device_data['properties'] = props
 
     device_data['lanip_key'] = lanip['lanip_key']

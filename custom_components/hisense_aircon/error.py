@@ -9,3 +9,7 @@ class KeyIdReplaced(Exception):
   def __init__(self, title, message):
     self.title = title
     self.message = message
+
+
+class InvalidAuth(Error):
+  """The cloud account rejected the supplied credentials."""

@@ -131,11 +131,12 @@
       }
     },
     "error": {
-      "cannot_connect": "Impossibile connettersi al servizio Hisense/Ayla oppure le credenziali sono state rifiutate.",
+      "cannot_connect": "Impossibile contattare il servizio Hisense/Ayla o leggere la risposta.",
       "device_not_found": "Nessun dispositivo corrispondente trovato.",
       "invalid_manual_config": "La configurazione manuale è incompleta o non valida.",
       "no_device_selected": "Seleziona almeno un dispositivo.",
-      "duplicate_device": "Un indirizzo MAC o IP del dispositivo è già configurato."
+      "duplicate_device": "Un indirizzo MAC o IP del dispositivo è già configurato.",
+      "invalid_auth": "Accesso rifiutato. Controlla app, nome utente e password."
     },
     "abort": {
       "already_configured": "Questo dispositivo è già configurato.",

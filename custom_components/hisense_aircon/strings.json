@@ -87,11 +87,12 @@
       }
     },
     "error": {
-      "cannot_connect": "Could not connect to the Hisense/Ayla service or the credentials were rejected.",
+      "cannot_connect": "Could not reach the Hisense/Ayla service or read its response.",
       "device_not_found": "No matching device was found.",
       "invalid_manual_config": "Manual configuration is incomplete or invalid.",
       "no_device_selected": "Select at least one device.",
-      "duplicate_device": "A device MAC address or IP address is already configured."
+      "duplicate_device": "A device MAC address or IP address is already configured.",
+      "invalid_auth": "Sign in was rejected. Check the app, username, and password."
     },
     "abort": {
       "already_configured": "This device is already configured.",

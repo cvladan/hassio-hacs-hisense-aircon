@@ -164,7 +164,7 @@ class ConfigFlowTests(unittest.IsolatedAsyncioTestCase):
     with patch('custom_components.hisense_aircon.config_flow.perform_discovery',
                AsyncMock(return_value=[{'product_name': 'Bad', 'mac': 'invalid'}])), patch(
                    'custom_components.hisense_aircon.config_flow.async_get_clientsession'), self.assertLogs(
-                       'custom_components.hisense_aircon.config_flow', level='ERROR'):
+                       'custom_components.hisense_aircon.config_flow', level='WARNING'):
       result = await self.flow.async_step_cloud({'app': 'hisense-eu', 'username': 'u', 'password': 'p'})
     self.assertEqual(result['errors']['base'], 'cannot_connect')
     options = HisenseOptionsFlow(self.entry)
@@ -174,3 +174,13 @@ class ConfigFlowTests(unittest.IsolatedAsyncioTestCase):
       data = form['data_schema']({'local_ip': value})
       result = await options.async_step_init(data)
       self.assertIsNone(result['data']['local_ip'])
+
+  async def test_cloud_error_categories(self):
+    from custom_components.hisense_aircon.error import InvalidAuth
+    for outcome, error in [(InvalidAuth('rejected'), 'invalid_auth'),
+                           (TimeoutError(), 'cannot_connect'), ([], 'device_not_found')]:
+      discovery = AsyncMock(side_effect=outcome) if isinstance(outcome, Exception) else AsyncMock(return_value=outcome)
+      with patch('custom_components.hisense_aircon.config_flow.perform_discovery', discovery), patch(
+          'custom_components.hisense_aircon.config_flow.async_get_clientsession'):
+        result = await self.flow.async_step_cloud({'app': 'hisense-eu', 'username': 'u', 'password': 'secret'})
+      self.assertEqual(result['errors']['base'], error)
