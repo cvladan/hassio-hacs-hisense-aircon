@@ -116,5 +116,49 @@
         }
       }
     }
+  },
+  "entity": {
+    "switch": {
+      "t_eco": {
+        "name": "Eco"
+      },
+      "t_fan_mute": {
+        "name": "Quiet"
+      },
+      "t_temp_heatcold": {
+        "name": "Super"
+      },
+      "t_backlight": {
+        "name": "Backlight"
+      },
+      "t_display_power": {
+        "name": "Display power"
+      }
+    },
+    "sensor": {
+      "f_temp_in": {
+        "name": "Indoor temperature"
+      },
+      "f_humidity": {
+        "name": "Humidity"
+      }
+    },
+    "binary_sensor": {
+      "f_filterclean": {
+        "name": "Filter cleaning required"
+      }
+    },
+    "select": {
+      "sleep_mode": {
+        "name": "Sleep mode",
+        "state": {
+          "stop": "Off",
+          "one": "Profile 1",
+          "two": "Profile 2",
+          "three": "Profile 3",
+          "four": "Profile 4"
+        }
+      }
+    }
   }
 }

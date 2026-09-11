@@ -110,7 +110,11 @@ class HisensePropertyEntity(HisenseEntity):
     super().__init__(controller, device)
     self.field = field
     self.prop_name = field.name
-    self._attr_name = property_friendly_name(field.name)
+    if field.name in {"t_eco", "t_fan_mute", "t_temp_heatcold", "t_backlight",
+                      "t_display_power", "f_temp_in", "f_humidity", "f_filterclean", "t_sleep"}:
+      self._attr_translation_key = "sleep_mode" if field.name == "t_sleep" else field.name
+    else:
+      self._attr_name = property_friendly_name(field.name)
     self._attr_unique_id = f"{device.mac_address}_{field.name}"
 
   @property

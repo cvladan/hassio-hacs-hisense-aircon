@@ -1,0 +1,164 @@
+{
+  "title": "Climatizzatore Hisense",
+  "entity": {
+    "switch": {
+      "t_eco": {
+        "name": "Eco"
+      },
+      "t_fan_mute": {
+        "name": "Silenzioso"
+      },
+      "t_temp_heatcold": {
+        "name": "Super"
+      },
+      "t_backlight": {
+        "name": "Retroilluminazione"
+      },
+      "t_display_power": {
+        "name": "Alimentazione display"
+      }
+    },
+    "sensor": {
+      "f_temp_in": {
+        "name": "Temperatura interna"
+      },
+      "f_humidity": {
+        "name": "Umidità"
+      }
+    },
+    "binary_sensor": {
+      "f_filterclean": {
+        "name": "Pulizia filtro necessaria"
+      }
+    },
+    "select": {
+      "sleep_mode": {
+        "name": "Modalità sonno",
+        "state": {
+          "stop": "Disattivata",
+          "one": "Profilo 1",
+          "two": "Profilo 2",
+          "three": "Profilo 3",
+          "four": "Profilo 4"
+        }
+      }
+    }
+  },
+  "config": {
+    "step": {
+      "user": {
+        "title": "Aggiungi climatizzatore",
+        "data": {
+          "setup_method": "Metodo di configurazione"
+        }
+      },
+      "cloud": {
+        "title": "Rileva dall'app Hisense",
+        "description": "Inserisci il codice dell'app, il nome utente e la password dell'account dell'app mobile a cui è associato il climatizzatore. Per scegliere il codice corretto, consulta [Codici app supportati](https://github.com/cvladan/hassio-hacs-hisense-aircon#supported-app-codes). Le impostazioni avanzate sono facoltative e nella maggior parte delle installazioni possono rimanere chiuse.",
+        "data": {
+          "app": "Codice app",
+          "username": "Nome utente",
+          "password": "Password"
+        },
+        "data_description": {
+          "app": "Scegli il codice dell'app mobile a cui è associato il climatizzatore. Consulta [Codici app supportati](https://github.com/cvladan/hassio-hacs-hisense-aircon#supported-app-codes)."
+        },
+        "sections": {
+          "advanced_settings": {
+            "name": "Impostazioni avanzate",
+            "description": "La maggior parte degli utenti dovrebbe lasciare invariati questi valori. Usa questa sezione solo per aggiungere un dispositivo specifico dell'account, se Home Assistant dispone di più interfacce di rete o VLAN, se la porta HTTP non è 8123 oppure per modificare la frequenza di aggiornamento completo.",
+            "data": {
+              "device_name": "Filtro nome dispositivo",
+              "local_ip": "Indirizzo IP locale di Home Assistant",
+              "callback_port": "Porta HTTP di Home Assistant",
+              "status_interval": "Intervallo aggiornamento stato",
+              "temp_type": "Unità di temperatura del dispositivo"
+            },
+            "data_description": {
+              "device_name": "Nome esatto facoltativo del dispositivo nell'app mobile. Lascia vuoto per aggiungere tutti i dispositivi compatibili trovati nell'account.",
+              "local_ip": "Indirizzo IP facoltativo che Home Assistant deve comunicare al climatizzatore. Lascia vuoto per il rilevamento automatico. Impostalo in presenza di più indirizzi IP, Docker/macvlan o VLAN.",
+              "callback_port": "Porta HTTP non crittografata di Home Assistant raggiungibile dal climatizzatore, normalmente 8123.",
+              "status_interval": "Frequenza, in secondi, con cui Home Assistant richiede un aggiornamento completo. Valori inferiori aggiornano prima ma generano più traffico locale.",
+              "temp_type": "Usa Auto salvo temperature o intervalli errati. Auto usa il codice app; se l'app non identifica un'unità nativa, viene usata quella configurata in Home Assistant."
+            }
+          }
+        }
+      },
+      "select_devices": {
+        "title": "Seleziona i climatizzatori Hisense",
+        "description": "Scegli i dispositivi da mantenere in questa configurazione. Durante l’aggiunta, i dispositivi esistenti restano selezionati. Deve rimanere almeno un dispositivo.",
+        "data": {
+          "selected_devices": "Dispositivi"
+        }
+      },
+      "manual": {
+        "title": "Configurazione manuale chiave LAN",
+        "data": {
+          "name": "Nome dispositivo",
+          "app": "Codice app",
+          "host": "Indirizzo IP dispositivo",
+          "mac_address": "Indirizzo MAC",
+          "lanip_key": "Chiave IP LAN",
+          "lanip_key_id": "ID chiave IP LAN",
+          "model": "Modello OEM",
+          "sw_version": "Versione software",
+          "temp_type": "Unità di temperatura",
+          "local_ip": "Indirizzo IP locale di Home Assistant",
+          "callback_port": "Porta HTTP di Home Assistant",
+          "status_interval": "Intervallo aggiornamento stato"
+        }
+      },
+      "reconfigure": {
+        "title": "Gestisci dispositivi Hisense",
+        "menu_options": {
+          "cloud": "Rileva o aggiorna i dispositivi da un account dell’app",
+          "manual": "Aggiungi un dispositivo con chiave LAN",
+          "manage_devices": "Scegli i dispositivi da mantenere",
+          "edit_device": "Modifica l’indirizzo IP di un dispositivo"
+        }
+      },
+      "edit_device": {
+        "title": "Seleziona un dispositivo",
+        "data": {
+          "mac_address": "Dispositivo"
+        }
+      },
+      "edit_ip": {
+        "title": "Modifica indirizzo IP",
+        "data": {
+          "host": "Indirizzo IP del dispositivo"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Impossibile connettersi al servizio Hisense/Ayla oppure le credenziali sono state rifiutate.",
+      "device_not_found": "Nessun dispositivo corrispondente trovato.",
+      "invalid_manual_config": "La configurazione manuale è incompleta o non valida.",
+      "no_device_selected": "Seleziona almeno un dispositivo.",
+      "duplicate_device": "Un indirizzo MAC o IP del dispositivo è già configurato."
+    },
+    "abort": {
+      "already_configured": "Questo dispositivo è già configurato.",
+      "reconfigure_successful": "Configurazione dei dispositivi aggiornata."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Opzioni climatizzatore Hisense",
+        "data": {
+          "local_ip": "Indirizzo IP locale di Home Assistant",
+          "callback_port": "Porta HTTP di Home Assistant",
+          "status_interval": "Intervallo aggiornamento stato",
+          "temp_type": "Unità di temperatura del dispositivo"
+        },
+        "data_description": {
+          "local_ip": "Usa solo quando Home Assistant dispone di più interfacce di rete o VLAN. Lascia vuoto per il rilevamento automatico.",
+          "callback_port": "Porta HTTP non crittografata raggiungibile dal climatizzatore, normalmente 8123.",
+          "status_interval": "Frequenza, in secondi, con cui Home Assistant richiede un aggiornamento completo delle proprietà.",
+          "temp_type": "Usa Auto salvo temperature o intervalli errati. Auto mantiene l'unità rilevata durante la configurazione; C o F sostituiscono l'unità memorizzata dopo il ricaricamento dell'integrazione."
+        }
+      }
+    }
+  }
+}
