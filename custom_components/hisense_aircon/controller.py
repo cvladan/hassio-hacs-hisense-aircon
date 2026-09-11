@@ -35,13 +35,15 @@ from .query_handlers import QueryHandlers
 
 _LOGGER = logging.getLogger(__name__)
 
+type HisenseConfigEntry = ConfigEntry[HisenseController]
+
 _WAIT_FOR_EMPTY_QUEUE = 10.0
 
 
 class HisenseController:
   """Own the LAN server endpoints, notifier and device update loops."""
 
-  def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+  def __init__(self, hass: HomeAssistant, entry: HisenseConfigEntry) -> None:
     self.hass = hass
     self.entry = entry
     self.devices = [
@@ -99,11 +101,7 @@ class HisenseController:
       self, coro: Coroutine[Any, Any, Any], name: str
   ) -> asyncio.Task[Any]:
     """Create long-running work without holding up Home Assistant startup."""
-    if hasattr(self.entry, "async_create_background_task"):
-      return self.entry.async_create_background_task(self.hass, coro, name)
-    if hasattr(self.hass, "async_create_background_task"):
-      return self.hass.async_create_background_task(coro, name)
-    return self.hass.async_create_task(coro)
+    return self.entry.async_create_background_task(self.hass, coro, name)
 
   async def async_stop(self) -> None:
     """Stop background work."""
@@ -162,7 +160,8 @@ class HisenseController:
 
 def _controller_from_request(request: web.Request) -> HisenseController:
   hass = request.app["hass"]
-  for controller in hass.data.get(DOMAIN, {}).values():
+  for entry in hass.config_entries.async_entries(DOMAIN):
+    controller = getattr(entry, "runtime_data", None)
     if isinstance(controller, HisenseController) and request.remote in controller.handlers.device_ips:
       return controller
   raise web.HTTPNotFound(reason="No configured Hisense device matches the request source.")

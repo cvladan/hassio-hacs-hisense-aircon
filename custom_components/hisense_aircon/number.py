@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 from homeassistant.components.number import NumberEntity
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PERCENTAGE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN
-from .controller import HisenseController
+from .controller import HisenseConfigEntry, HisenseController
 from .entity import HisensePropertyEntity, property_fields
 
 _INTERNAL_NUMBERS = {"t_control_value"}
@@ -17,11 +15,11 @@ _INTERNAL_NUMBERS = {"t_control_value"}
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: HisenseConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
   """Set up number entities."""
-  controller: HisenseController = hass.data[DOMAIN][entry.entry_id]
+  controller: HisenseController = entry.runtime_data
   entities = []
   for device in controller.devices:
     for field in property_fields(device):

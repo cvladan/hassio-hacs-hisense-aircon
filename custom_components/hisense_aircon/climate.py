@@ -15,14 +15,12 @@ from homeassistant.components.climate import (
     SWING_ON,
     SWING_VERTICAL,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .aircon import Device
-from .const import DOMAIN
-from .controller import HisenseController
+from .controller import HisenseConfigEntry, HisenseController
 from .entity import HisenseEntity
 from .properties import AcWorkMode, AirFlow, FglOperationMode, Power
 
@@ -55,11 +53,11 @@ FGL_TO_HVAC = {
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: HisenseConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
   """Set up climate entities."""
-  controller: HisenseController = hass.data[DOMAIN][entry.entry_id]
+  controller: HisenseController = entry.runtime_data
   async_add_entities(
       HisenseClimate(controller, device)
       for device in controller.devices

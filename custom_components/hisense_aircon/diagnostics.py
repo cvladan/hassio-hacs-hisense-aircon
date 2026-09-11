@@ -1,12 +1,11 @@
 """Device diagnostics without account credentials or network identifiers."""
 
 import enum
-from .const import DOMAIN
 
 
 async def async_get_config_entry_diagnostics(hass, entry):
   """Export reported protocol state, using an allowlist instead of raw config data."""
-  controller = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+  controller = getattr(entry, "runtime_data", None)
   return {
       "devices": [
           {

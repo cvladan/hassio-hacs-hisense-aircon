@@ -97,10 +97,12 @@ class ConfigFlowTests(unittest.IsolatedAsyncioTestCase):
     second = object.__new__(HisenseController)
     first.handlers = SimpleNamespace(device_ips={"192.0.2.1"})
     second.handlers = SimpleNamespace(device_ips={"192.0.2.2"})
-    self.hass.data[DOMAIN] = {"first": first, "second": second, "views_registered": True}
+    self.entry.runtime_data = first
+    other = self.add_entry([device("aabbccddeeff", "192.0.2.2")])
+    other.runtime_data = second
     request = SimpleNamespace(app={"hass": self.hass}, remote="192.0.2.2")
     self.assertIs(_controller_from_request(request), second)
-    del self.hass.data[DOMAIN]["first"]
+    del self.entry.runtime_data
     self.assertIs(_controller_from_request(request), second)
     request.remote = "192.0.2.99"
     with self.assertRaises(web.HTTPNotFound):
@@ -238,3 +240,45 @@ class ConfigFlowTests(unittest.IsolatedAsyncioTestCase):
       await controller.async_start()
     source.assert_not_awaited()
     self.assertEqual([c.local_ip for c in controller._notifier._configurations], ['192.0.2.200'] * 2)
+
+  async def test_setup_failure_and_unload_cleanup(self):
+    import asyncio
+    from unittest.mock import Mock
+    from custom_components.hisense_aircon import async_setup_entry, async_unload_entry
+    from custom_components.hisense_aircon.aircon import Device
+    registry = er.async_get(self.hass)
+    old = registry.async_get_or_create('switch', DOMAIN, '001122334455_t_power', config_entry=self.entry)
+    for failure in (RuntimeError('platform failure'), asyncio.CancelledError()):
+      controller = Mock(devices=[Device.create(device(), lambda: None)],
+                        async_start=AsyncMock(), async_stop=AsyncMock())
+      with patch('custom_components.hisense_aircon.HisenseController', return_value=controller), patch.object(
+          self.hass.config_entries, 'async_forward_entry_setups', AsyncMock(side_effect=failure)), patch.object(
+              self.hass.config_entries, 'async_unload_platforms', AsyncMock(return_value=True)):
+        with self.assertRaises(type(failure)):
+          await async_setup_entry(self.hass, self.entry)
+      controller.async_stop.assert_awaited_once()
+      self.assertFalse(hasattr(self.entry, 'runtime_data'))
+      self.assertIsNotNone(registry.async_get(old.entity_id))
+    self.entry.runtime_data = controller
+    for success in (False, True):
+      controller.async_stop.reset_mock()
+      with patch.object(self.hass.config_entries, 'async_unload_platforms', AsyncMock(return_value=success)):
+        self.assertEqual(await async_unload_entry(self.hass, self.entry), success)
+      self.assertEqual(hasattr(self.entry, 'runtime_data'), not success)
+      self.assertEqual(controller.async_stop.await_count, int(success))
+
+  async def test_controller_stop_is_safe_before_start_and_after_cancel(self):
+    import asyncio
+    controller = HisenseController(self.hass, self.entry)
+    await controller.async_stop()
+    with patch.object(controller, '_register_views'), patch(
+        'custom_components.hisense_aircon.controller.async_get_source_ip', AsyncMock(return_value='192.0.2.100')), patch(
+            'custom_components.hisense_aircon.controller.async_get_clientsession'), patch.object(
+                controller._notifier, 'start', new=lambda session: asyncio.sleep(3600)):
+      await controller.async_start()
+      tasks = list(controller._tasks)
+      await controller.async_stop()
+      await controller.async_stop()
+    self.assertTrue(all(task.done() for task in tasks))
+    self.assertFalse(controller._tasks)
+    self.assertFalse(controller.devices[0]._property_change_listeners)

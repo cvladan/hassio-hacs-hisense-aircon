@@ -5,22 +5,20 @@ from __future__ import annotations
 import enum
 
 from homeassistant.components.switch import SwitchEntity
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN
-from .controller import HisenseController
+from .controller import HisenseConfigEntry, HisenseController
 from .entity import HisensePropertyEntity, is_binary_enum, is_enum_type, property_fields
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: HisenseConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
   """Set up switch entities."""
-  controller: HisenseController = hass.data[DOMAIN][entry.entry_id]
+  controller: HisenseController = entry.runtime_data
   entities = []
   for device in controller.devices:
     for field in property_fields(device):

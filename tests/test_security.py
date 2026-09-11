@@ -65,8 +65,8 @@ class SecurityTests(unittest.IsolatedAsyncioTestCase):
     self.assertEqual(len(login.call_args.args), 6)
     self.assertNotIn("ssl_context", login.call_args.kwargs)
     self.unit.update_property('f_voltage', 230)
-    entry = SimpleNamespace(entry_id='test')
-    hass = SimpleNamespace(data={'hisense_aircon': {'test': SimpleNamespace(devices=[self.unit])}})
+    entry = SimpleNamespace(entry_id='test', runtime_data=SimpleNamespace(devices=[self.unit]))
+    hass = SimpleNamespace()
     payload = json.dumps(await async_get_config_entry_diagnostics(hass, entry))
     for secret in ('lanip_key', 'testkey', 'mac_address', '001122334455', '127.0.0.1', 'test-dsn'):
       self.assertNotIn(secret, payload)

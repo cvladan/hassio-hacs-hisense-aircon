@@ -99,7 +99,8 @@ class Device(object):
     self._property_change_listeners.append(listener)
 
   def remove_property_change_listener(self, listener: Callable[[str, Any], None]):
-    self._property_change_listeners.remove(listener)
+    if listener in self._property_change_listeners:
+      self._property_change_listeners.remove(listener)
 
   def _notify_listeners(self, prop_name: str, value, retain: bool = False):
     for listener in self._property_change_listeners:

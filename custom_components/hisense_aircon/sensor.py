@@ -3,23 +3,21 @@
 from __future__ import annotations
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import PERCENTAGE, UnitOfElectricPotential, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN
-from .controller import HisenseController
+from .controller import HisenseConfigEntry, HisenseController
 from .entity import HisensePropertyEntity, property_fields
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: HisenseConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
   """Set up sensor entities."""
-  controller: HisenseController = hass.data[DOMAIN][entry.entry_id]
+  controller: HisenseController = entry.runtime_data
   entities = []
   for device in controller.devices:
     for field in property_fields(device):
