@@ -188,26 +188,29 @@ class ConfigFlowTests(unittest.IsolatedAsyncioTestCase):
       self.assertEqual(result['errors']['base'], error)
 
   async def test_local_ip_validation_in_each_form(self):
-    import voluptuous as vol
+    from homeassistant.helpers import config_validation as cv
     from custom_components.hisense_aircon.config_flow import HisenseOptionsFlow
     options = HisenseOptionsFlow(self.entry)
     options.hass = self.hass
     schema = (await options.async_step_init())['data_schema']
-    self.assertEqual(schema({'local_ip': ' 192.0.2.100 '})['local_ip'], '192.0.2.100')
+    result = await options.async_step_init(schema({'local_ip': ' 192.0.2.100 '}))
+    self.assertEqual(result['data']['local_ip'], '192.0.2.100')
     for address in ('bad-ip', '::1', '999.1.1.1'):
-      with self.assertRaises(vol.Invalid):
-        schema({'local_ip': address})
+      result = await options.async_step_init(schema({'local_ip': address}))
+      self.assertEqual(result['errors']['base'], 'invalid_local_ip')
     self.flow.context = {'source': 'user'}
-    for step in (self.flow.async_step_manual, self.flow.async_step_cloud):
-      schema = (await step())['data_schema']
-      values = schema.schema
-      if step == self.flow.async_step_cloud:
-        values = next(value.schema.schema for key, value in values.items()
-                      if key.schema == 'advanced_settings')
-      validator = next(value for key, value in values.items() if key.schema == 'local_ip')
-      self.assertIsNone(validator(''))
-      with self.assertRaises(ValueError):
-        validator('bad-ip')
+    for step, data in [(self.flow.async_step_manual, {'local_ip': 'bad-ip'}),
+                       (self.flow.async_step_cloud, {'advanced_settings': {'local_ip': 'bad-ip'}})]:
+      result = await step(data)
+      self.assertEqual(result['errors']['base'], 'invalid_local_ip')
+    if hasattr(cv, 'to_field_list'):
+      serialize = cv.to_field_list
+    else:
+      from voluptuous_serialize import convert as serialize
+    for step in (self.flow.async_step_user, self.flow.async_step_manual,
+                 self.flow.async_step_cloud, options.async_step_init):
+      form = await step()
+      self.assertTrue(serialize(form['data_schema'], custom_serializer=cv.custom_serializer))
 
   async def test_callback_ip_selection_and_network_retry(self):
     from unittest.mock import Mock

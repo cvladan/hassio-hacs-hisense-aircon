@@ -136,7 +136,8 @@
       "invalid_manual_config": "La configurazione manuale è incompleta o non valida.",
       "no_device_selected": "Seleziona almeno un dispositivo.",
       "duplicate_device": "Un indirizzo MAC o IP del dispositivo è già configurato.",
-      "invalid_auth": "Accesso rifiutato. Controlla app, nome utente e password."
+      "invalid_auth": "Accesso rifiutato. Controlla app, nome utente e password.",
+      "invalid_local_ip": "Inserisci un indirizzo IPv4 valido o lascia vuoto per la selezione automatica."
     },
     "abort": {
       "already_configured": "Questo dispositivo è già configurato.",
@@ -160,6 +161,9 @@
           "temp_type": "Usa Auto salvo temperature o intervalli errati. Auto mantiene l'unità rilevata durante la configurazione; C o F sostituiscono l'unità memorizzata dopo il ricaricamento dell'integrazione."
         }
       }
+    },
+    "error": {
+      "invalid_local_ip": "Inserisci un indirizzo IPv4 valido o lascia vuoto per la selezione automatica."
     }
   }
 }

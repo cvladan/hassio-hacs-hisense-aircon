@@ -184,6 +184,7 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     if user_input is not None:
       advanced_settings = user_input.get(_ADVANCED_SETTINGS, {})
       try:
+        local_ip = _local_ip(advanced_settings.get(CONF_LOCAL_IP))
         session = async_get_clientsession(self.hass)
         discovered = await perform_discovery(
             session,
@@ -202,6 +203,8 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 temp_type,
             ) for device in discovered
         ]
+      except vol.Invalid:
+        errors["base"] = "invalid_local_ip"
       except InvalidAuth:
         errors["base"] = "invalid_auth"
       except (Error, ClientError, TimeoutError, KeyError, ValueError, TypeError) as ex:
@@ -217,7 +220,7 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
           self._cloud_setup = {
               CONF_APP: user_input[CONF_APP],
               CONF_DEVICES: devices,
-              CONF_LOCAL_IP: _blank_to_none(advanced_settings.get(CONF_LOCAL_IP)),
+              CONF_LOCAL_IP: local_ip,
               CONF_CALLBACK_PORT: advanced_settings.get(CONF_CALLBACK_PORT,
                                                         DEFAULT_CALLBACK_PORT),
               CONF_STATUS_INTERVAL: advanced_settings.get(CONF_STATUS_INTERVAL,
@@ -247,7 +250,7 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 section(
                     vol.Schema({
                         vol.Optional(CONF_DEVICE_NAME, default=""): str,
-                        vol.Optional(CONF_LOCAL_IP, default=""): _local_ip,
+                        vol.Optional(CONF_LOCAL_IP, default=""): vol.Maybe(str),
                         vol.Optional(CONF_CALLBACK_PORT, default=DEFAULT_CALLBACK_PORT): vol.All(int, vol.Range(min=1, max=65535)),
                         vol.Optional(CONF_STATUS_INTERVAL, default=DEFAULT_STATUS_INTERVAL): vol.All(int, vol.Range(min=1)),
                         vol.Optional(CONF_TEMP_TYPE, default=CONF_TEMP_TYPE_AUTO):
@@ -306,7 +309,10 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     errors: dict[str, str] = {}
     if user_input is not None:
       try:
+        local_ip = _local_ip(user_input.get(CONF_LOCAL_IP))
         device = _device_config_from_manual(user_input)
+      except vol.Invalid:
+        errors["base"] = "invalid_local_ip"
       except (KeyError, ValueError):
         errors["base"] = "invalid_manual_config"
       else:
@@ -321,7 +327,7 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._abort_if_unique_id_configured()
           return self._save_devices(devices, {
               CONF_APP: device["app"],
-              CONF_LOCAL_IP: _blank_to_none(user_input.get(CONF_LOCAL_IP)),
+              CONF_LOCAL_IP: local_ip,
               CONF_CALLBACK_PORT: user_input.get(CONF_CALLBACK_PORT, DEFAULT_CALLBACK_PORT),
               CONF_STATUS_INTERVAL: user_input.get(CONF_STATUS_INTERVAL, DEFAULT_STATUS_INTERVAL),
               CONF_TEMP_TYPE: user_input[CONF_TEMP_TYPE],
@@ -342,7 +348,7 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             vol.Required(CONF_MODEL, default="AEH-W4E1"): str,
             vol.Optional(CONF_SW_VERSION, default=""): str,
             vol.Required(CONF_TEMP_TYPE, default=_ha_temp_type(self.hass)): vol.In(["C", "F"]),
-            vol.Optional(CONF_LOCAL_IP, default=""): _local_ip,
+            vol.Optional(CONF_LOCAL_IP, default=""): vol.Maybe(str),
             vol.Required(CONF_CALLBACK_PORT, default=DEFAULT_CALLBACK_PORT): vol.All(int, vol.Range(min=1, max=65535)),
             vol.Required(CONF_STATUS_INTERVAL, default=DEFAULT_STATUS_INTERVAL): vol.All(int, vol.Range(min=1)),
         }
@@ -360,26 +366,33 @@ class HisenseOptionsFlow(config_entries.OptionsFlow):
 
   async def async_step_init(self, user_input: dict[str, Any] | None = None):
     """Manage runtime options."""
+    errors = {}
     if user_input is not None:
-      return self.async_create_entry(
-          title="",
-          data={
-              CONF_LOCAL_IP: _blank_to_none(user_input.get(CONF_LOCAL_IP)),
-              CONF_CALLBACK_PORT: user_input.get(CONF_CALLBACK_PORT, DEFAULT_CALLBACK_PORT),
-              CONF_STATUS_INTERVAL: user_input.get(CONF_STATUS_INTERVAL, DEFAULT_STATUS_INTERVAL),
-              CONF_TEMP_TYPE: user_input[CONF_TEMP_TYPE],
-          },
-      )
+      try:
+        local_ip = _local_ip(user_input.get(CONF_LOCAL_IP))
+      except vol.Invalid:
+        errors["base"] = "invalid_local_ip"
+      else:
+        return self.async_create_entry(
+            title="",
+            data={
+                CONF_LOCAL_IP: local_ip,
+                CONF_CALLBACK_PORT: user_input.get(CONF_CALLBACK_PORT, DEFAULT_CALLBACK_PORT),
+                CONF_STATUS_INTERVAL: user_input.get(CONF_STATUS_INTERVAL, DEFAULT_STATUS_INTERVAL),
+                CONF_TEMP_TYPE: user_input[CONF_TEMP_TYPE],
+            },
+        )
 
     return self.async_show_form(
         step_id="init",
+        errors=errors,
         data_schema=vol.Schema({
             vol.Optional(
                 CONF_LOCAL_IP,
                 default=self._entry.options.get(
                     CONF_LOCAL_IP, self._entry.data.get(CONF_LOCAL_IP)) or "",
             ):
-                _local_ip,
+                vol.Maybe(str),
             vol.Required(
                 CONF_CALLBACK_PORT,
                 default=self._entry.options.get(
@@ -422,7 +435,10 @@ def _blank_to_none(value: str | None) -> str | None:
 def _local_ip(value: str | None) -> str | None:
   """Allow automatic selection or a valid IPv4 callback address."""
   value = _blank_to_none(value)
-  return str(IPv4Address(value)) if value else None
+  try:
+    return str(IPv4Address(value)) if value else None
+  except ValueError as ex:
+    raise vol.Invalid("Enter an IPv4 address or leave the field empty.") from ex
 
 
 def _normalize_mac(mac_address: str) -> str:
