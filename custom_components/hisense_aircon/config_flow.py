@@ -236,6 +236,9 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     return self.async_show_form(
         step_id="cloud",
+        description_placeholders={
+            "supported_apps_url": "https://github.com/cvladan/hassio-hacs-hisense-aircon#supported-app-codes",
+        },
         data_schema=vol.Schema({
             vol.Required(CONF_APP, default="hisense-eu"):
                 SelectSelector(

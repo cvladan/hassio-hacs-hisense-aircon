@@ -10,14 +10,14 @@
       },
       "cloud": {
         "title": "Discover from Hisense app",
-        "description": "Enter the app code, username, and password for the mobile app account where your air conditioner is paired. For choosing the correct app code, see [Supported App Codes](https://github.com/cvladan/hassio-hacs-hisense-aircon#supported-app-codes). Advanced Settings are optional and can stay collapsed for most installs.",
+        "description": "Enter the app code, username, and password for the mobile app account where your air conditioner is paired. For choosing the correct app code, see [Supported App Codes]({supported_apps_url}). Advanced Settings are optional and can stay collapsed for most installs.",
         "data": {
           "app": "App code",
           "username": "Username",
           "password": "Password"
         },
         "data_description": {
-          "app": "Choose the code for the mobile app where your air conditioner is paired. See [Supported App Codes](https://github.com/cvladan/hassio-hacs-hisense-aircon#supported-app-codes)."
+          "app": "Choose the code for the mobile app where your air conditioner is paired. See [Supported App Codes]({supported_apps_url})."
         },
         "sections": {
           "advanced_settings": {

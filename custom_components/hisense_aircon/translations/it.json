@@ -54,14 +54,14 @@
       },
       "cloud": {
         "title": "Rileva dall'app Hisense",
-        "description": "Inserisci il codice dell'app, il nome utente e la password dell'account dell'app mobile a cui è associato il climatizzatore. Per scegliere il codice corretto, consulta [Codici app supportati](https://github.com/cvladan/hassio-hacs-hisense-aircon#supported-app-codes). Le impostazioni avanzate sono facoltative e nella maggior parte delle installazioni possono rimanere chiuse.",
+        "description": "Inserisci il codice dell'app, il nome utente e la password dell'account dell'app mobile a cui è associato il climatizzatore. Per scegliere il codice corretto, consulta [Codici app supportati]({supported_apps_url}). Le impostazioni avanzate sono facoltative e nella maggior parte delle installazioni possono rimanere chiuse.",
         "data": {
           "app": "Codice app",
           "username": "Nome utente",
           "password": "Password"
         },
         "data_description": {
-          "app": "Scegli il codice dell'app mobile a cui è associato il climatizzatore. Consulta [Codici app supportati](https://github.com/cvladan/hassio-hacs-hisense-aircon#supported-app-codes)."
+          "app": "Scegli il codice dell'app mobile a cui è associato il climatizzatore. Consulta [Codici app supportati]({supported_apps_url})."
         },
         "sections": {
           "advanced_settings": {
