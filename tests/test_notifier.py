@@ -44,3 +44,37 @@ class NotifierTests(unittest.IsolatedAsyncioTestCase):
       await asyncio.sleep(0)
       await asyncio.wait_for(notifier.stop(), timeout=0.5)
       await asyncio.wait_for(task, timeout=0.5)
+
+  async def test_registration_refresh_is_deduplicated_and_preserves_user_priority(self):
+    from custom_components.hisense_aircon.query_handlers import QueryHandlers
+    from types import SimpleNamespace
+    notifier = Notifier(8123, '192.0.2.100')
+    unit = Device.create(device(), lambda: None)
+    notifier.register_device(unit)
+    response = Mock(status=202)
+    session = Mock(request=Mock(return_value=AsyncMock(__aenter__=AsyncMock(return_value=response))))
+    config = notifier._configurations[0]
+    with patch('custom_components.hisense_aircon.notifier.time.monotonic', return_value=100):
+      await notifier._perform_request(session, config)
+    size = unit.commands_queue.qsize()
+    self.assertGreater(size, 0)
+    unit.queue_status()
+    self.assertEqual(unit.commands_queue.qsize(), size)
+    unit.queue_command('t_temp', 23)
+    self.assertEqual(unit.commands_queue.get_nowait().priority, 10)
+    handler = QueryHandlers([unit])
+    await handler.command_handler(SimpleNamespace(remote=unit.ip_address))
+    self.assertEqual(len(unit._pending_status), size - 1)
+    # Reconnect while the earlier refresh is still queued; refill only the sent read.
+    unit.available = False
+    with patch('custom_components.hisense_aircon.notifier.time.monotonic', return_value=200):
+      await notifier._perform_request(session, config)
+    self.assertEqual(unit.commands_queue.qsize(), size)
+    for _ in range(size):
+      await handler.command_handler(SimpleNamespace(remote=unit.ip_address))
+    self.assertFalse(unit._pending_status)
+    with patch('custom_components.hisense_aircon.notifier.time.monotonic', return_value=220):
+      await notifier._perform_request(session, config)
+    self.assertEqual(session.request.call_args.args[0], 'PUT')
+    self.assertEqual(unit.commands_queue.qsize(), 0)
+    self.assertIsNone(unit.get_reported_property('t_temp'))

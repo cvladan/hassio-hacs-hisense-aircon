@@ -107,4 +107,6 @@ class Notifier:
     config.failures = 0
     config.next_attempt = 0
     config.device.available = True
-    return queue_size
+    if method == "POST":
+      config.device.queue_status()
+    return config.device.commands_queue.qsize()

@@ -1,5 +1,6 @@
 from copy import deepcopy
 from dataclasses import dataclass, field, fields
+from functools import partial
 import enum
 import logging
 import random
@@ -59,6 +60,7 @@ class Device(object):
     self.verti_sweeps = []
 
     self._next_command_id = 0
+    self._pending_status = set()
 
     self.commands_queue = queue.PriorityQueue()
     self._commands_seq_no = 0
@@ -244,7 +246,12 @@ class Device(object):
     raise NotImplementedError()
 
   def queue_status(self) -> None:
+    queued = False
     for data_field in fields(self._properties):
+      if data_field.name in self._pending_status:
+        continue
+      self._pending_status.add(data_field.name)
+      queued = True
       command = {
           'cmds': [{
               'cmd': {
@@ -258,8 +265,10 @@ class Device(object):
       }
       self._next_command_id += 1
       # Add as a lower-priority command.
-      self.commands_queue.put_nowait(Command(100, time.time_ns(), command, None))
-    self._queue_listener()
+      self.commands_queue.put_nowait(Command(
+          100, time.time_ns(), command, partial(self._pending_status.discard, data_field.name)))
+    if queued:
+      self._queue_listener()
 
   def update_key(self, key: dict) -> dict:
     return self._config.update(key)
