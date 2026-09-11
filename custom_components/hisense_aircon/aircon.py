@@ -44,6 +44,8 @@ class Device(object):
                       if config.get('temp_type') == 'C' else TemperatureUnit.FAHRENHEIT)
     self._config = Config(config['lanip_key'], config['lanip_key_id'])
     self._properties = properties
+    self._pending_control = None
+    self._pending_control_count = 0
     self._properties_lock = threading.RLock()
     self._queue_listener = notifier
     self._available = None
@@ -176,8 +178,9 @@ class Device(object):
       data_value = data_type(value)
 
     # If device has set t_control_value it is being controlled by this field.
-    if (name not in ('t_control_value', 't_sleep', 't_swing_angle') and
-        self.get_property('t_control_value')):
+    if (name in ('t_power', 't_fan_speed', 't_work_mode', 't_temp_heatcold',
+                 't_eco', 't_temp', 't_fan_power', 't_fan_leftright', 't_fan_mute',
+                 't_temptype') and self._command_control()):
       self._convert_to_control_value(name, data_value)
       return
 
@@ -190,11 +193,26 @@ class Device(object):
     command = self._build_command(name, data_value)
     # There are (usually) no acks on commands, so also queue an update to the
     # property, to be run once the command is sent.
-    property_updater = lambda: self.update_property(name, typed_value)
+    if name == 't_control_value':
+      self._pending_control = typed_value
+      self._pending_control_count += 1
+
+    def property_updater():
+      if name == 't_control_value':
+        self._pending_control_count -= 1
+        if self._pending_control_count == 0:
+          self._pending_control = None
+      self.update_property(name, typed_value)
     # Add as a high priority command.
     self.commands_queue.put_nowait(Command(10, time.time_ns(), command, property_updater))
 
     self._queue_listener()
+
+  def _command_control(self):
+    """Merge writes into the last unsent command, even after an older status arrives."""
+    if self._pending_control is not None:
+      return self._pending_control
+    return self.get_property('t_control_value')
 
   def _build_command(self, name: str, data_value: int):
     base_type = self._properties.get_base_type(name)
@@ -295,7 +313,7 @@ class AcDevice(Device):
     return self.get_property('f_temp_in')
 
   def set_power(self, setting: Power) -> None:
-    control = self.get_property('t_control_value')
+    control = self._command_control()
     control = control_value.clear_up_change_flags(control)
     if control:
       control = control_value.set_power(control, setting)
@@ -311,7 +329,7 @@ class AcDevice(Device):
       return self.get_property('t_power')
 
   def set_temperature(self, setting: int) -> None:
-    control = self.get_property('t_control_value')
+    control = self._command_control()
     control = control_value.clear_up_change_flags(control)
     if control:
       control = control_value.set_temp(control, setting)
@@ -333,7 +351,7 @@ class AcDevice(Device):
     return self.get_property('t_sleep')
 
   def set_work_mode(self, setting: AcWorkMode) -> None:
-    control = self.get_property('t_control_value')
+    control = self._command_control()
     control = control_value.clear_up_change_flags(control)
     if control:
       if control_value.get_power(control) == Power.OFF:
@@ -351,7 +369,7 @@ class AcDevice(Device):
       return self.get_property('t_work_mode')
 
   def set_fan_speed(self, setting: FanSpeed) -> None:
-    control = self.get_property('t_control_value')
+    control = self._command_control()
     control = control_value.clear_up_change_flags(control)
     if control:
       control = control_value.set_fan_speed(control, setting)
@@ -373,7 +391,7 @@ class AcDevice(Device):
     return self.get_property('t_swing_angle')
 
   def set_fan_vertical(self, setting: AirFlow) -> None:
-    control = self.get_property('t_control_value')
+    control = self._command_control()
     control = control_value.clear_up_change_flags(control)
     if control:
       control = control_value.set_fan_power(control, setting)
@@ -389,7 +407,7 @@ class AcDevice(Device):
       return self.get_property('t_fan_power')
 
   def set_fan_horizontal(self, setting: AirFlow) -> None:
-    control = self.get_property('t_control_value')
+    control = self._command_control()
     control = control_value.clear_up_change_flags(control)
     if control:
       control = control_value.set_fan_lr(control, setting)
@@ -405,7 +423,7 @@ class AcDevice(Device):
       return self.get_property('t_fan_leftright')
 
   def set_fan_mute(self, setting: Quiet) -> None:
-    control = self.get_property('t_control_value')
+    control = self._command_control()
     control = control_value.clear_up_change_flags(control)
     if control:
       control = control_value.set_fan_mute(control, setting)
@@ -421,7 +439,7 @@ class AcDevice(Device):
       return self.get_property('t_fan_mute')
 
   def set_fast_heat_cold(self, setting: FastColdHeat):
-    control = self.get_property('t_control_value')
+    control = self._command_control()
     control = control_value.clear_up_change_flags(control)
     if control:
       control = control_value.set_heat_cold(control, setting)
@@ -437,7 +455,7 @@ class AcDevice(Device):
       return self.get_property('t_temp_heatcold')
 
   def set_eco(self, setting: Economy) -> None:
-    control = self.get_property('t_control_value')
+    control = self._command_control()
     control = control_value.clear_up_change_flags(control)
     if control:
       control = control_value.set_eco(control, setting)
@@ -453,7 +471,7 @@ class AcDevice(Device):
       return self.get_property('t_eco')
 
   def set_temptype(self, setting: TemperatureUnit) -> None:
-    control = self.get_property('t_control_value')
+    control = self._command_control()
     control = control_value.clear_up_change_flags(control)
     if control:
       control = control_value.set_temptype(control, setting)
@@ -469,7 +487,7 @@ class AcDevice(Device):
       return self.get_property('t_temptype')
 
   def set_swing(self, setting: AirFlowState) -> None:
-    control = self.get_property("t_control_value")
+    control = self._command_control()
     control = control_value.clear_up_change_flags(control)
     if control:
       if setting == AirFlowState.OFF:

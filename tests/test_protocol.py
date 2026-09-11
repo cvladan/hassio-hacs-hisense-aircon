@@ -43,3 +43,42 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
         response = await handlers.property_update_handler(request)
       self.assertEqual(response.status, 200)
     self.assertEqual(unit.get_property('t_temp'), 23)
+
+  async def test_pending_commands_survive_an_older_report(self):
+    unit = ac()
+    old = unit.get_property('t_control_value')
+    unit.queue_command('t_temp', 22)
+    unit.update_property('t_control_value', old)
+    unit.queue_command('t_fan_speed', 'HIGH')
+    values = []
+    while not unit.commands_queue.empty():
+      command = unit.commands_queue.get_nowait()
+      values.append(command.command['properties'][0]['property']['value'])
+      command.updater()
+    self.assertEqual([control_value.get_temp(value) for value in values], [22, 22])
+    self.assertIsNone(unit._pending_control)
+    self.assertEqual(unit.get_property('t_temp'), 22)
+
+  async def test_all_writable_properties_can_queue_with_packed_control(self):
+    from dataclasses import fields
+    for field in fields(ac().get_all_properties()):
+      if field.metadata['read_only']:
+        continue
+      unit = ac()
+      with self.subTest(property=field.name):
+        value = unit.get_property(field.name)
+        unit.queue_command(field.name, 0 if value is None else value)
+        self.assertFalse(unit.commands_queue.empty())
+
+  async def test_turbo_and_swing_keep_all_queued_changes(self):
+    unit = ac()
+    unit.queue_command('t_temp_heatcold', 'ON')
+    unit.queue_command('t_fan_power', 'ON')
+    unit.queue_command('t_fan_leftright', 'ON')
+    packed = unit._command_control()
+    self.assertEqual(control_value.get_heat_cold(packed).name, 'ON')
+    self.assertEqual(control_value.get_fan_mute(packed).name, 'OFF')
+    self.assertEqual(control_value.get_fan_power(packed).name, 'ON')
+    self.assertEqual(control_value.get_fan_lr(packed).name, 'ON')
+    names = [c.command['properties'][0]['property']['name'] for c in unit.commands_queue.queue]
+    self.assertIn('t_temp_eight', names)
