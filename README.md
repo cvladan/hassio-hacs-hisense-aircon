@@ -3,7 +3,7 @@
 > [!IMPORTANT]
 > This integration does not support ConnectLife app air conditioners. For those devices, you may want to try [oyvindwe/connectlife-ha](https://github.com/oyvindwe/connectlife-ha), though this has not been verified here.
 
-Native Home Assistant custom integration for Hisense/Ayla LAN air conditioners.
+Native Home Assistant custom integration for Hisense/Ayla LAN air conditioners. Requires Home Assistant 2026.3.0 or newer.
 
 This repository is now structured for HACS. It no longer runs as a Docker container, Home Assistant add-on, MQTT bridge, or external Python service. Home Assistant hosts the local Ayla LAN endpoints directly and communicates with the device on your local network.
 
@@ -162,7 +162,7 @@ The air conditioner must be able to reach Home Assistant by plain HTTP on the co
 
 For a quick browser check after the integration is loaded, open any endpoint directly. It will return a small JSON explanation when the browser method is not the real device protocol call. The `/local_lan/commands.json` endpoint is special: the air conditioner uses `GET` there, so browser checks from non-device IP addresses get the explanation while requests from the configured air conditioner IP get the real command response.
 
-If Home Assistant has several IP addresses or VLAN interfaces, set the **Home Assistant local IP address** option explicitly.
+Home Assistant selects a callback address for the route to each device. Leave **Home Assistant local IP address** empty for this automatic selection, or enter an IPv4 address to override it for every device in that configuration.
 
 ## Supported App Codes
 
@@ -275,5 +275,7 @@ Run the checks with Python 3.14:
 python -m pip install homeassistant==2026.9.1 dataclasses-json==0.6.7 getmac==0.9.5 pycryptodome==3.23.0
 python -m unittest discover -s tests -v
 ```
+
+CI runs these checks on Home Assistant 2026.3.0 and 2026.9.1, plus HACS validation and hassfest. To check the minimum version locally, use a separate environment with `homeassistant==2026.3.0`.
 
 The checks use Home Assistant classes and a local aiohttp test server. They do not contact the cloud or a physical air conditioner. Real device checks are still needed for Quiet behavior, recovery after connection loss, and cloud discovery across supported apps.

@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.3.0
+
+- Require Home Assistant 2026.3.0 or newer, with regression checks on 2026.3.0 and 2026.9.1, HACS validation, and hassfest.
+- Use the Home Assistant HTTP client's certificate verification, limit cloud requests to 15 seconds, and distinguish sign in failures, connection failures, and empty accounts.
+- Select the callback IP for each device through Home Assistant networking. Validate manual overrides without breaking form rendering.
+- Clean up background tasks after failed or cancelled setup and store controllers in configuration runtime data.
+- Request fresh device state after registration and reconnect without duplicating pending reads.
+- Replace combined swing modes with independent vertical and horizontal climate actions. This changes existing swing automations; see the README migration table.
+- Turn devices on without selecting Auto mode.
+- Avoid redundant state notifications while preserving first reports and unknown state transitions.
+- Remove the obsolete issue follow-up document.
+
+Thanks to Kamal Nasser (@kamaln7) and Juan Manuel Béc (@JuanmanDev) for the upstream swing and reconnect improvements. Their source commits are credited in the corresponding implementation commits.
+
 ## 1.2.0
 
 - Add multiple configuration entries and device management through Reconfigure. Cloud passwords are not saved.
