@@ -96,6 +96,9 @@ class QueryHandlers:
       # Fix A/C typos.
       if name == 'f_votage':
         name = 'f_voltage'
+      if device.get_property_type(name) is None:
+        logging.debug('Ignoring unsupported device property %s', name)
+        return response
       value = device.parse_property(name, update['data']['value'])
       device.update_property(name, value)
     except Exception as ex:

@@ -109,7 +109,8 @@ class Device(object):
       return getattr(self._properties, name, None)
 
   def get_property_type(self, name: str):
-    return self._properties.get_type(name)
+    return (self._properties.get_type(name)
+            if name in self._properties.__dataclass_fields__ else None)
 
   def parse_property(self, name: str, value):
     return self._properties.parse_attr(name, value)
@@ -265,7 +266,7 @@ class AcDevice(Device):
       super().update_property(name, value, notify_value)
       # HomeAssistant doesn't listen to changes in t_power, so notify also on a t_work_mode change.
       if name == 't_power':
-        work_mode = 'off' if value == Power.OFF else self.get_work_mode()
+        work_mode = 'off' if value == Power.OFF else self.get_property('t_work_mode')
         self._notify_listeners('t_work_mode', work_mode)
 
   # @override to add special support for t_power.
@@ -526,35 +527,24 @@ class AcDevice(Device):
       raise ValueError()
 
   def _update_controlled_properties(self, control: int):
-    power = control_value.get_power(control)
-    self.update_property('t_power', power)
-
-    fan_speed = control_value.get_fan_speed(control)
-    self.update_property('t_fan_speed', fan_speed)
-
-    work_mode = control_value.get_work_mode(control)
-    self.update_property('t_work_mode', work_mode)
-
-    temp_heatcold = control_value.get_heat_cold(control)
-    self.update_property('t_temp_heatcold', temp_heatcold)
-
-    eco = control_value.get_eco(control)
-    self.update_property('t_eco', eco)
-
-    temp = control_value.get_temp(control)
-    self.update_property('t_temp', temp)
-
-    fan_power = control_value.get_fan_power(control)
-    self.update_property('t_fan_power', fan_power)
-
-    fan_horizontal = control_value.get_fan_lr(control)
-    self.update_property('t_fan_leftright', fan_horizontal)
-
-    fan_mute = control_value.get_fan_mute(control)
-    self.update_property('t_fan_mute', fan_mute)
-
-    temptype = control_value.get_temptype(control)
-    self.update_property('t_temptype', temptype)
+    for name, decoder in (
+        ('t_power', control_value.get_power),
+        ('t_fan_speed', control_value.get_fan_speed),
+        ('t_work_mode', control_value.get_work_mode),
+        ('t_temp_heatcold', control_value.get_heat_cold),
+        ('t_eco', control_value.get_eco),
+        ('t_temp', control_value.get_temp),
+        ('t_fan_power', control_value.get_fan_power),
+        ('t_fan_leftright', control_value.get_fan_lr),
+        ('t_fan_mute', control_value.get_fan_mute),
+        ('t_temptype', control_value.get_temptype),
+    ):
+      try:
+        value = decoder(control)
+      except ValueError:
+        logging.debug('Unknown %s in control value %s', name, control)
+        value = None
+      self.update_property(name, value)
 
 
 class FglDevice(Device):
