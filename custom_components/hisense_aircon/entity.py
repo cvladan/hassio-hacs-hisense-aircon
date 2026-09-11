@@ -131,9 +131,21 @@ class HisensePropertyEntity(HisenseEntity):
       self.hass.loop.call_soon_threadsafe(self.async_write_ha_state)
 
 
+def climate_managed_properties(device: Device) -> set[str]:
+  """Return only controls actually provided by this device's climate entity."""
+  if not {"work_mode", "temp"} <= device.topics.keys():
+    return set()
+  names = {device.topics[key] for key in ("power", "work_mode", "temp", "fan_speed", "swing_mode")
+           if key in device.topics}
+  if device.get_property_type("t_fan_leftright") is not None:
+    names.add("t_fan_leftright")
+  return names
+
+
 def property_fields(device: Device) -> list[Field[Any]]:
   """Return dataclass fields for a device."""
-  return list(fields(device.get_all_properties()))
+  return [field for field in fields(device.get_all_properties())
+          if field.name not in climate_managed_properties(device)]
 
 
 def property_to_native_value(value: Any) -> Any:

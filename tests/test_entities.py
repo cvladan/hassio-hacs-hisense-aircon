@@ -42,3 +42,16 @@ class EntityTests(unittest.TestCase):
       self.assertEqual(command.command['properties'][0]['property']['value'], 225)
       command.updater()
       self.assertEqual(climate.target_temperature, 22.5)
+
+  def test_only_actual_climate_duplicates_are_removed(self):
+    from custom_components.hisense_aircon.entity import climate_managed_properties, property_fields
+    unit = Device.create(device(), lambda: None)
+    removed = climate_managed_properties(unit)
+    self.assertEqual(removed, {'t_power', 't_work_mode', 't_temp', 't_fan_speed',
+                               't_fan_power', 't_fan_leftright'})
+    remaining = {field.name for field in property_fields(unit)}
+    self.assertTrue({'t_temptype', 't_sleep', 't_swing_angle', 't_run_mode'} <= remaining)
+    fgl = Device.create({**device(), 'model': 'AP-WA1E'}, lambda: None)
+    self.assertNotIn('af_horizontal_swing', climate_managed_properties(fgl))
+    humidifier = Device.create({**device(), 'model': '0001-0401-0001'}, lambda: None)
+    self.assertEqual(climate_managed_properties(humidifier), set())

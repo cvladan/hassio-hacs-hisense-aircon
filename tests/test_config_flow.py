@@ -119,3 +119,19 @@ class ConfigFlowTests(unittest.IsolatedAsyncioTestCase):
     controller = HisenseController(self.hass, self.entry)
     self.assertIn('192.0.2.20', controller.handlers.device_ips)
     self.assertNotIn('192.0.2.2', controller.handlers.device_ips)
+
+  async def test_setup_removes_only_its_registered_climate_duplicates(self):
+    from custom_components.hisense_aircon import async_setup_entry
+    from custom_components.hisense_aircon.aircon import Device
+    from unittest.mock import Mock
+    registry = er.async_get(self.hass)
+    old = registry.async_get_or_create('switch', DOMAIN, '001122334455_t_power',
+                                       config_entry=self.entry)
+    keep = registry.async_get_or_create('select', DOMAIN, '001122334455_t_sleep',
+                                        config_entry=self.entry)
+    controller = Mock(devices=[Device.create(device(), lambda: None)], async_start=AsyncMock())
+    with patch('custom_components.hisense_aircon.HisenseController', return_value=controller), patch.object(
+        self.hass.config_entries, 'async_forward_entry_setups', AsyncMock()):
+      await async_setup_entry(self.hass, self.entry)
+    self.assertIsNone(registry.async_get(old.entity_id))
+    self.assertIsNotNone(registry.async_get(keep.entity_id))

@@ -121,6 +121,22 @@ Open the integration entry menu in **Settings > Devices & services** and choose 
 
 You can also add another integration entry for a different account or a manual device. Each device must have a unique MAC address and IP address across all entries. Runtime options such as the callback address apply to the entry and are edited through **Configure**.
 
+## Updating Automations That Use Separate Climate Controls
+
+The climate entity now provides the main controls. The matching standalone entities are removed on the next integration setup, including existing registry entries. The climate entity ID stays the same. Update dashboards, scripts, scenes, and automations that used these controls:
+
+| Previous control | Replacement action on the climate entity |
+|------------------|------------------------------------------|
+| Power switch | `climate.turn_on` or `climate.turn_off` |
+| Work mode select | `climate.set_hvac_mode`, with `hvac_mode` such as `cool` or `heat` |
+| Target temperature number | `climate.set_temperature`, with `temperature` |
+| Fan speed select | `climate.set_fan_mode`, using the entity's `fan_modes` values |
+| Vertical or horizontal swing switch | `climate.set_swing_mode`, using the entity's `swing_modes` values |
+
+For a Hisense device, use `off`, `vertical`, `horizontal`, or `both` for swing. Fujitsu devices with vertical swing use `off` or `on`. Climate state attributes replace reads of these standalone controls. `climate.turn_on` selects auto mode; use `climate.set_hvac_mode` if an automation needs a specific mode.
+
+Sleep, Quiet, Eco, Super, backlight, swing angle, and the device display temperature unit remain separate controls. Humidifier controls also remain. Fujitsu controls that the climate entity does not provide, such as horizontal louver control, are kept.
+
 ## Network Notes
 
 The air conditioner must be able to reach Home Assistant by plain HTTP on the configured port. The integration registers these local endpoints:
