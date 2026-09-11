@@ -52,12 +52,12 @@ class Config:
 
   def update(self, key: dict):
     """Updates the stored lan config, and encryption data."""
-    self._lan_config.random_1 = key['random_1']
-    self._lan_config.time_1 = key['time_1']
     if key['key_id'] != self._lan_config.lanip_key_id:
       raise KeyIdReplaced(
           'The key_id has been replaced!!',
           'Old ID was {}; new ID is {}.'.format(self._lan_config.lanip_key_id, key['key_id']))
+    self._lan_config.random_1 = key['random_1']
+    self._lan_config.time_1 = key['time_1']
     self._lan_config.random_2 = ''.join(random.choices(string.ascii_letters + string.digits, k=16))
     self._lan_config.time_2 = time.monotonic_ns() % 2**40
     self._update_encryption()

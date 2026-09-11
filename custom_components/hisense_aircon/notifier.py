@@ -9,6 +9,8 @@ import time
 
 from .aircon import Device
 
+_LOGGER = logging.getLogger(__name__)
+
 
 @dataclass
 class _NotifyConfiguration:
@@ -98,18 +100,18 @@ class Notifier:
     method = 'PUT' if config.device.available and config.failures == 0 else 'POST'
     payload = {'local_reg': {**self._json['local_reg'], 'notify': int(queue_size > 0)}}
     url = f'http://{config.device.ip_address}/local_reg.json'
-    logging.debug(f'[KeepAlive] Sending {method} {url} {json.dumps(payload)}')
+    _LOGGER.debug(f'[KeepAlive] Sending {method} {url} {json.dumps(payload)}')
     try:
       timeout = aiohttp.ClientTimeout(total=self._REQUEST_TIMEOUT)
       async with session.request(method, url, json=payload, headers=config.headers,
                                  timeout=timeout) as resp:
         if resp.status != HTTPStatus.ACCEPTED.value:
           resp_data = await resp.text()
-          logging.error(f'[KeepAlive] Sending local_reg failed: {resp.status}, {resp_data}')
+          _LOGGER.error(f'[KeepAlive] Sending local_reg failed: {resp.status}, {resp_data}')
           self._record_failure(config, now)
           return 0
     except (aiohttp.ClientError, asyncio.TimeoutError) as ex:
-      logging.warning(f'Failed to connect to {config.device.ip_address}, maybe it is offline: {ex}')
+      _LOGGER.warning(f'Failed to connect to {config.device.ip_address}, maybe it is offline: {ex}')
       self._record_failure(config, now)
       return 0
     config.last_timestamp = now

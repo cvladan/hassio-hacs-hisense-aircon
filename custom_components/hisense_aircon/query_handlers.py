@@ -1,5 +1,7 @@
 from aiohttp import web
 import base64
+import binascii
+import hmac
 from Crypto.Cipher import AES
 from http import HTTPStatus
 import json
@@ -15,8 +17,12 @@ from .config import Config, Encryption
 from .aircon import Device
 from .error import Error, KeyIdReplaced
 
+_LOGGER = logging.getLogger(__name__)
+
 
 class QueryHandlers:
+
+  _MAX_REQUEST_BODY = 64 * 1024
 
   def __init__(self, devices: [Device]):
     self._devices_map = {}
@@ -42,18 +48,18 @@ class QueryHandlers:
     server. Fortunately the lanip_key_id (and lanip_key) are static for a given
     AC.
     """
-    updated_keys = {}
-    post_data = await request.text()
-    data = json.loads(post_data)
+    device = self._device_for_remote(request)
+    data = await self._read_json(request)
+    key = data.get('key_exchange')
+    if (not isinstance(key, dict) or key.get('ver') != 1 or key.get('proto') != 1
+        or key.get('sec') or not isinstance(key.get('random_1'), str)
+        or type(key.get('time_1')) is not int or type(key.get('key_id')) is not int):
+      raise web.HTTPBadRequest(reason='Invalid key exchange payload.')
     try:
-      key = data['key_exchange']
-      if key['ver'] != 1 or key['proto'] != 1 or key.get('sec'):
-        logging.error(f'Invalid key exchange: {data}')
-        raise web.HTTPBadRequest(reason=f'Invalid key exchange: {data}')
-      updated_keys = self._device_for_remote(request).update_key(key)
-    except KeyIdReplaced as e:
-      logging.error(f'{e.title}\n{e.message}')
-      return web.Response(status=HTTPStatus.NOT_FOUND.value, reason=f'{e.title}\n{e.message}')
+      updated_keys = device.update_key(key)
+    except KeyIdReplaced:
+      _LOGGER.warning('Device LAN key ID changed; rediscover the device.')
+      raise web.HTTPNotFound(reason='Device LAN key ID changed.') from None
     return web.json_response(updated_keys)
 
   async def command_handler(self, request: web.Request) -> web.Response:
@@ -78,31 +84,33 @@ class QueryHandlers:
     Decrypts, validates, and pushes the value into the local properties store.
     """
     device = self._device_for_remote(request)
-    post_data = await request.text()
-    data = json.loads(post_data)
+    data = await self._read_json(request)
     try:
       update = self._decrypt_and_validate(device, data)
-    except Error:
-      logging.exception('Failed to parse property.')
+    except Error as ex:
+      _LOGGER.warning('Rejected device update: %s', ex)
       return web.Response(status=HTTPStatus.BAD_REQUEST.value, reason='Failed to parse property.')
     response = web.Response()
+    if (not isinstance(update, dict) or type(update.get('seq_no')) is not int
+        or not isinstance(update.get('data'), dict)):
+      raise web.HTTPBadRequest(reason='Invalid device update payload.')
     if not device.is_update_valid(update['seq_no']):
       return response
     try:
       if not update['data']:
-        logging.info('Unsupported update message = {}'.format(update['seq_no']))
+        _LOGGER.info('Unsupported update message = {}'.format(update['seq_no']))
         return response
       name = update['data']['name']
       # Fix A/C typos.
       if name == 'f_votage':
         name = 'f_voltage'
       if device.get_property_type(name) is None:
-        logging.debug('Ignoring unsupported device property %s', name)
+        _LOGGER.debug('Ignoring unsupported device property %s', name)
         return response
       value = device.parse_property(name, update['data']['value'])
       device.update_property(name, value)
     except Exception as ex:
-      logging.error('Failed to handle {}. Exception = {}'.format(update, ex))
+      _LOGGER.warning('Invalid device property update (%s)', type(ex).__name__)
       #TODO: Should return internal error?
     return response
 
@@ -129,13 +137,13 @@ class QueryHandlers:
     try:
       device.queue_command(request.query['property'], request.query['value'])
     except Exception as ex:
-      logging.exception('Failed to queue command.')
+      _LOGGER.exception('Failed to queue command.')
       raise web.HTTPBadRequest(f'Failed to queue command:\n{ex!r}')
     return web.json_response({'queued_commands': device.commands_queue.qsize()})
 
   def _encrypt_and_sign(self, device: Device, data: dict) -> dict:
     text = json.dumps(data)
-    logging.debug('Encrypting: {}'.format(text))
+    _LOGGER.debug('Sending device command sequence %s', data.get('seq_no'))
     text = text.encode('utf-8')
     encryption = device.get_app_encryption()
     return {
@@ -143,18 +151,32 @@ class QueryHandlers:
         "sign": base64.b64encode(Encryption.hmac_digest(encryption.sign_key, text)).decode('utf-8')
     }
 
+  async def _read_json(self, request: web.Request) -> dict:
+    """Use aiohttp's body limit, including requests with chunked encoding."""
+    try:
+      data = await request.clone(client_max_size=self._MAX_REQUEST_BODY).json()
+    except (ValueError, UnicodeDecodeError):
+      raise web.HTTPBadRequest(reason='Invalid JSON payload.') from None
+    if not isinstance(data, dict):
+      raise web.HTTPBadRequest(reason='JSON payload must be an object.')
+    return data
+
   def _decrypt_and_validate(self, device: Device, data: dict) -> dict:
     encryption = device.get_dev_encryption()
-    text = self.unpad(encryption.cipher.decrypt(base64.b64decode(data['enc'])))
-    sign = base64.b64encode(Encryption.hmac_digest(encryption.sign_key, text)).decode('utf-8')
-    message = text.decode('utf-8', errors='replace')
-    if sign != data['sign']:
-      raise Error(f'Invalid signature for:\n{message}!')
-    logging.info('Decrypted: %s', message)
     try:
-      return json.loads(message)
-    except Exception as ex:
-      raise Error(f'Failed to decode message, {ex!r}:\n{message}')
+      encrypted = base64.b64decode(data['enc'], validate=True)
+      signature = base64.b64decode(data['sign'], validate=True)
+      if not encrypted or len(encrypted) % AES.block_size or len(signature) != 32:
+        raise ValueError('Invalid encrypted envelope')
+    except (KeyError, TypeError, ValueError, binascii.Error):
+      raise Error('Invalid encrypted device payload.') from None
+    text = self.unpad(encryption.cipher.decrypt(encrypted))
+    if not hmac.compare_digest(Encryption.hmac_digest(encryption.sign_key, text), signature):
+      raise Error('Invalid device message signature.')
+    try:
+      return json.loads(text)
+    except (ValueError, UnicodeDecodeError):
+      raise Error('Invalid decrypted JSON payload.') from None
 
   @staticmethod
   def pad(data: bytes):

@@ -17,6 +17,8 @@ from .properties import (AcProperties, AirFlow, AirFlowState, Economy, FanSpeed,
                          FglProperties, FglBProperties, HumidifierProperties, Properties, Power,
                          AcWorkMode, Quiet, TemperatureUnit, SleepMode, VertiSweep)
 
+_LOGGER = logging.getLogger(__name__)
+
 
 @dataclass(order=True)
 class Command:
@@ -165,7 +167,7 @@ class Device(object):
     with self._updates_seq_no_lock:
       # Every once in a while the sequence number is zeroed out, so accept it.
       if self._updates_seq_no > cur_update_no and cur_update_no > 0:
-        logging.error('Stale update found %d. Last update used is %d.', cur_update_no,
+        _LOGGER.error('Stale update found %d. Last update used is %d.', cur_update_no,
                       self._updates_seq_no)
         return False  # Old update
       self._updates_seq_no = cur_update_no
@@ -551,7 +553,7 @@ class AcDevice(Device):
     elif name == 't_temptype':
       return self.set_temptype(value)
     else:
-      logging.error('Cannot convert to control value property {}'.format(name))
+      _LOGGER.error('Cannot convert to control value property {}'.format(name))
       raise ValueError()
 
   def _update_controlled_properties(self, control: int, *, reported=True):
@@ -570,7 +572,7 @@ class AcDevice(Device):
       try:
         value = decoder(control)
       except ValueError:
-        logging.debug('Unknown %s in control value %s', name, control)
+        _LOGGER.debug('Unknown %s in control value %s', name, control)
         value = None
       self.update_property(name, value, reported=reported)
 

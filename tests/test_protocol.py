@@ -36,7 +36,8 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
   async def test_unknown_properties_are_ignored(self):
     unit = ac()
     handlers = QueryHandlers([unit])
-    request = Mock(remote=unit.ip_address, text=AsyncMock(return_value='{}'))
+    request = Mock(remote=unit.ip_address)
+    request.clone.return_value.json = AsyncMock(return_value={})
     for index, name in enumerate(('version', 't_swing_direction', 't_temp')):
       update = {'seq_no': index, 'data': {'name': name, 'value': 23}}
       with patch.object(handlers, '_decrypt_and_validate', return_value=update):

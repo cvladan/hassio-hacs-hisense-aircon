@@ -1,3 +1,4 @@
+import asyncio
 import aiohttp
 import base64
 from getmac import get_mac_address
@@ -8,6 +9,8 @@ import ssl
 
 from .app_mappings import *
 from .error import Error
+
+_LOGGER = logging.getLogger(__name__)
 
 _USER_AGENT = 'Dalvik/2.1.0 (Linux; U; Android 9.0; SM-G850F Build/LRX22G)'
 
@@ -33,7 +36,7 @@ async def _sign_in(user: str, passwd: str, user_server: str, app_id: str, app_se
       'Host': user_server,
       'Accept-Encoding': 'gzip'
   }
-  logging.debug('POST /users/sign_in.json, body=%r, headers=%r', json.dumps(query), headers)
+  _LOGGER.debug('Signing in to %s', user_server)
   async with session.request('POST',
                              f'https://{user_server}/users/sign_in.json',
                              json=query,
@@ -45,15 +48,15 @@ async def _sign_in(user: str, passwd: str, user_server: str, app_id: str, app_se
     resp_data = await resp.text()
     try:
       tokens = json.loads(resp_data)
-    except UnicodeDecodeError:
-      logging.exception('Failed to parse login tokens to Hisense server:\nData: %r', resp_data)
+    except (ValueError, UnicodeDecodeError):
+      _LOGGER.warning('Invalid login response from Hisense server')
       raise Error('Failed to parse login tokens from Hisense server.')
     return tokens['access_token']
 
 
 async def _get_devices(devices_server: str, access_token: str, headers: dict,
                        session: aiohttp.ClientSession, ssl_context: ssl.SSLContext):
-  logging.debug('GET /apiv1/devices.json, headers=%r', headers)
+  _LOGGER.debug('Fetching account devices')
   async with session.get(f'https://{devices_server}/apiv1/devices.json',
                          headers=headers,
                          ssl=ssl_context) as resp:
@@ -63,8 +66,8 @@ async def _get_devices(devices_server: str, access_token: str, headers: dict,
     resp_data = await resp.text()
     try:
       devices = json.loads(resp_data)
-    except UnicodeDecodeError:
-      logging.exception('Failed to parse devices data from Hisense server:\nData: %r', resp_data)
+    except (ValueError, UnicodeDecodeError):
+      _LOGGER.warning('Invalid devices response from Hisense server')
       raise Error('Failed to parse devices data from Hisense server.')
     if not devices:
       raise Error('No device is configured in the selected Hisense app account.')
@@ -73,7 +76,7 @@ async def _get_devices(devices_server: str, access_token: str, headers: dict,
 
 async def _get_lanip(devices_server: str, dsn: str, headers: dict, session: aiohttp.ClientSession,
                      ssl_context: ssl.SSLContext):
-  logging.debug(f'GET /apiv1/dsns/{dsn}/lan.json, headers=%r', headers)
+  _LOGGER.debug('Fetching device LAN configuration')
   async with session.get(f'https://{devices_server}/apiv1/dsns/{dsn}/lan.json',
                          headers=headers,
                          ssl=ssl_context) as resp:
@@ -85,7 +88,7 @@ async def _get_lanip(devices_server: str, dsn: str, headers: dict, session: aioh
 
 async def _get_device_properties(devices_server: str, dsn: str, headers: dict,
                                  session: aiohttp.ClientSession, ssl_context: ssl.SSLContext):
-  logging.debug(f'GET /apiv1/dsns/{dsn}/properties.json, headers=%r', headers)
+  _LOGGER.debug('Fetching device properties')
   async with session.get(f'https://{devices_server}/apiv1/dsns/{dsn}/properties.json',
                          headers=headers,
                          ssl=ssl_context) as resp:
@@ -124,8 +127,6 @@ async def perform_discovery(session: aiohttp.ClientSession,
   devices_server = AYLA_DEVICES_SERVERS[region]
 
   ssl_context = ssl.create_default_context()
-  ssl_context.check_hostname = False
-  ssl_context.verify_mode = ssl.CERT_NONE
 
   access_token = await _sign_in(user, passwd, user_server, app_id, app_secret, session, ssl_context)
 
@@ -139,7 +140,7 @@ async def perform_discovery(session: aiohttp.ClientSession,
       'Accept-Encoding': 'gzip'
   }
   devices = await _get_devices(devices_server, access_token, headers, session, ssl_context)
-  logging.debug('Found devices: %r', devices)
+  _LOGGER.debug('Found %d devices', len(devices))
   for device in devices:
     device_data = device['device']
     if device_filter and device_filter != device_data['product_name']:
@@ -156,9 +157,9 @@ async def perform_discovery(session: aiohttp.ClientSession,
     device_data['temp_type'] = 'C' if app in CELSIUS_BASED_APPS else 'F'
     # If the server doesn't know the MAC address, fetch it from the local network.
     if not device_data.get('mac'):
-      mac = get_mac_address(ip=device_data['lan_ip'])
+      mac = await asyncio.to_thread(get_mac_address, ip=device_data['lan_ip'])
       if not mac or mac == '00:00:00:00:00:00':
-        logging.error(f'Failed to fetch MAC address for AC on IP address {device_data["lan_ip"]}.' +
+        _LOGGER.error(f'Failed to fetch MAC address for AC on IP address {device_data["lan_ip"]}.' +
                       '\nAre you sure it is connected? Skipping...')
         continue
       device_data['mac'] = mac.replace(':', '')
