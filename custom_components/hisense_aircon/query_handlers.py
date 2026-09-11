@@ -92,7 +92,8 @@ class QueryHandlers:
       return web.Response(status=HTTPStatus.BAD_REQUEST.value, reason='Failed to parse property.')
     response = web.Response()
     if (not isinstance(update, dict) or type(update.get('seq_no')) is not int
-        or not isinstance(update.get('data'), dict)):
+        or 'data' not in update
+        or (update['data'] and not isinstance(update['data'], dict))):
       raise web.HTTPBadRequest(reason='Invalid device update payload.')
     if not device.is_update_valid(update['seq_no']):
       return response

@@ -191,6 +191,15 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             _blank_to_none(advanced_settings.get(CONF_DEVICE_NAME)),
             False,
         )
+        temp_type = advanced_settings.get(CONF_TEMP_TYPE, CONF_TEMP_TYPE_AUTO)
+        devices = [
+            _device_config_from_cloud(
+                user_input[CONF_APP],
+                device,
+                _ha_temp_type(self.hass),
+                temp_type,
+            ) for device in discovered
+        ]
       except Exception:
         _LOGGER.exception("Hisense cloud discovery failed")
         errors["base"] = "cannot_connect"
@@ -198,15 +207,6 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if not discovered:
           errors["base"] = "device_not_found"
         else:
-          temp_type = advanced_settings.get(CONF_TEMP_TYPE, CONF_TEMP_TYPE_AUTO)
-          devices = [
-              _device_config_from_cloud(
-                  user_input[CONF_APP],
-                  device,
-                  _ha_temp_type(self.hass),
-                  temp_type,
-              ) for device in discovered
-          ]
           self._cloud_setup = {
               CONF_APP: user_input[CONF_APP],
               CONF_DEVICES: devices,
@@ -240,7 +240,7 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 section(
                     vol.Schema({
                         vol.Optional(CONF_DEVICE_NAME, default=""): str,
-                        vol.Optional(CONF_LOCAL_IP, default=""): str,
+                        vol.Optional(CONF_LOCAL_IP, default=""): vol.Any(str, None),
                         vol.Optional(CONF_CALLBACK_PORT, default=DEFAULT_CALLBACK_PORT): vol.All(int, vol.Range(min=1, max=65535)),
                         vol.Optional(CONF_STATUS_INTERVAL, default=DEFAULT_STATUS_INTERVAL): vol.All(int, vol.Range(min=1)),
                         vol.Optional(CONF_TEMP_TYPE, default=CONF_TEMP_TYPE_AUTO):
@@ -335,7 +335,7 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             vol.Required(CONF_MODEL, default="AEH-W4E1"): str,
             vol.Optional(CONF_SW_VERSION, default=""): str,
             vol.Required(CONF_TEMP_TYPE, default=_ha_temp_type(self.hass)): vol.In(["C", "F"]),
-            vol.Optional(CONF_LOCAL_IP, default=""): str,
+            vol.Optional(CONF_LOCAL_IP, default=""): vol.Any(str, None),
             vol.Required(CONF_CALLBACK_PORT, default=DEFAULT_CALLBACK_PORT): vol.All(int, vol.Range(min=1, max=65535)),
             vol.Required(CONF_STATUS_INTERVAL, default=DEFAULT_STATUS_INTERVAL): vol.All(int, vol.Range(min=1)),
         }
@@ -372,7 +372,7 @@ class HisenseOptionsFlow(config_entries.OptionsFlow):
                 default=self._entry.options.get(
                     CONF_LOCAL_IP, self._entry.data.get(CONF_LOCAL_IP)) or "",
             ):
-                str,
+                vol.Any(str, None),
             vol.Required(
                 CONF_CALLBACK_PORT,
                 default=self._entry.options.get(

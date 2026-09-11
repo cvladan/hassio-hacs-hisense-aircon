@@ -135,3 +135,41 @@ class ConfigFlowTests(unittest.IsolatedAsyncioTestCase):
       await async_setup_entry(self.hass, self.entry)
     self.assertIsNone(registry.async_get(old.entity_id))
     self.assertIsNotNone(registry.async_get(keep.entity_id))
+
+  async def test_new_manual_and_second_account_setup(self):
+    self.flow.context = {'source': 'user'}
+    manual = dict(name='Manual', app='hisense-eu', host='192.0.2.2',
+                  mac_address='aabbccddeeff', lanip_key='testkey', lanip_key_id=1,
+                  model='AEH-W4E1', temp_type='C')
+    result = await self.flow.async_step_manual(manual)
+    self.assertEqual(result['type'], 'create_entry')
+    self.add_entry(result['data']['devices'])
+    duplicate = await self.flow.async_step_manual(manual)
+    self.assertEqual(duplicate['errors']['base'], 'duplicate_device')
+    discovered = [{**device('112233445566', '192.0.2.3'), 'product_name': 'Second account',
+                   'mac': '112233445566', 'lan_ip': '192.0.2.3'}]
+    with patch('custom_components.hisense_aircon.config_flow.perform_discovery',
+               AsyncMock(return_value=discovered)), patch(
+                   'custom_components.hisense_aircon.config_flow.async_get_clientsession'):
+      await self.flow.async_step_cloud({'app': 'oem-eu', 'username': 'other', 'password': 'secret'})
+    result = await self.flow.async_step_select_devices({'selected_devices': ['112233445566']})
+    self.assertEqual(result['type'], 'create_entry')
+    self.assertEqual(result['data']['app'], 'oem-eu')
+    self.assertNotIn('password', result['data'])
+    self.assertNotIn('username', result['data'])
+
+  async def test_malformed_cloud_device_and_empty_local_ip(self):
+    from custom_components.hisense_aircon.config_flow import HisenseOptionsFlow
+    with patch('custom_components.hisense_aircon.config_flow.perform_discovery',
+               AsyncMock(return_value=[{'product_name': 'Bad', 'mac': 'invalid'}])), patch(
+                   'custom_components.hisense_aircon.config_flow.async_get_clientsession'), self.assertLogs(
+                       'custom_components.hisense_aircon.config_flow', level='ERROR'):
+      result = await self.flow.async_step_cloud({'app': 'hisense-eu', 'username': 'u', 'password': 'p'})
+    self.assertEqual(result['errors']['base'], 'cannot_connect')
+    options = HisenseOptionsFlow(self.entry)
+    options.hass = self.hass
+    form = await options.async_step_init()
+    for value in ('', None):
+      data = form['data_schema']({'local_ip': value})
+      result = await options.async_step_init(data)
+      self.assertIsNone(result['data']['local_ip'])

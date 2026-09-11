@@ -72,3 +72,12 @@ class SecurityTests(unittest.IsolatedAsyncioTestCase):
     payload = json.dumps(await async_get_config_entry_diagnostics(hass, entry))
     for secret in ('lanip_key', 'testkey', 'mac_address', '001122334455', '127.0.0.1', 'test-dsn'):
       self.assertNotIn(secret, payload)
+
+  async def test_empty_updates_remain_accepted(self):
+    for seq, data in enumerate((None, '', {}, {'name': 'version', 'value': 'test'}), 1):
+      with patch.object(self.handlers, '_decrypt_and_validate', return_value={'seq_no': seq, 'data': data}):
+        response = await self.client.post('/update', json={})
+      self.assertEqual(response.status, 200)
+    with patch.object(self.handlers, '_decrypt_and_validate', return_value={'seq_no': 5, 'data': 'bad'}):
+      response = await self.client.post('/update', json={})
+    self.assertEqual(response.status, 400)
