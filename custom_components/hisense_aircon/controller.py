@@ -16,7 +16,6 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from .aircon import Device
 from .const import (
-    ACTIVE_CONTROLLER,
     CONF_CALLBACK_PORT,
     CONF_DEVICES,
     CONF_LOCAL_IP,
@@ -141,7 +140,6 @@ class HisenseController:
 
   def _register_views(self) -> None:
     domain_data = self.hass.data.setdefault(DOMAIN, {})
-    domain_data[ACTIVE_CONTROLLER] = self
     if domain_data.get(VIEWS_REGISTERED):
       return
     self.hass.http.register_view(HisenseKeyExchangeView())
@@ -157,7 +155,10 @@ class HisenseController:
 
 def _controller_from_request(request: web.Request) -> HisenseController:
   hass = request.app["hass"]
-  return hass.data[DOMAIN][ACTIVE_CONTROLLER]
+  for controller in hass.data.get(DOMAIN, {}).values():
+    if isinstance(controller, HisenseController) and request.remote in controller.handlers.device_ips:
+      return controller
+  raise web.HTTPNotFound(reason="No configured Hisense device matches the request source.")
 
 
 def _endpoint_info(url: str, protocol_methods: list[str]) -> web.Response:
@@ -206,10 +207,11 @@ class HisenseCommandsView(HomeAssistantView):
   requires_auth = False
 
   async def get(self, request: web.Request) -> web.Response:
-    controller = _controller_from_request(request)
-    if request.remote not in controller.handlers.device_ips:
+    try:
+      controller = _controller_from_request(request)
+    except web.HTTPNotFound:
       return _endpoint_info(self.url, ["GET"])
-    return await _controller_from_request(request).handlers.command_handler(request)
+    return await controller.handlers.command_handler(request)
 
 
 class HisenseCommandsRootView(HisenseCommandsView):

@@ -115,6 +115,12 @@ Enter:
 - Home Assistant HTTP port
 - optional Home Assistant local IP
 
+## Managing Devices After Setup
+
+Open the integration entry menu in **Settings > Devices & services** and choose **Reconfigure**. You can discover more devices from an app account, add a device with a LAN key, or choose which devices to keep. Cloud discovery asks for credentials each time and does not save the password. Removing the last device requires deleting the configuration entry.
+
+You can also add another integration entry for a different account or a manual device. Each device must have a unique MAC address and IP address across all entries. Runtime options such as the callback address apply to the entry and are edited through **Configure**.
+
 ## Network Notes
 
 The air conditioner must be able to reach Home Assistant by plain HTTP on the configured port. The integration registers these local endpoints:

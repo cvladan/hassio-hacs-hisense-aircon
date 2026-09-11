@@ -3,7 +3,9 @@
   "name": "Hisense Air Conditioner",
   "codeowners": [],
   "config_flow": true,
-  "dependencies": ["http"],
+  "dependencies": [
+    "http"
+  ],
   "documentation": "https://github.com/cvladan/hassio-hacs-hisense-aircon",
   "integration_type": "hub",
   "iot_class": "local_push",
@@ -13,6 +15,6 @@
     "getmac==0.9.5",
     "pycryptodome==3.23.0"
   ],
-  "single_config_entry": true,
+  "single_config_entry": false,
   "version": "1.1.7"
 }

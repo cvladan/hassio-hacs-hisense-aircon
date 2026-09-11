@@ -42,7 +42,7 @@
       },
       "select_devices": {
         "title": "Select Hisense devices",
-        "description": "Choose one or more discovered air conditioners to add. All discovered devices are selected by default.",
+        "description": "Choose the devices to keep in this configuration. When adding devices, existing devices remain selected. At least one device must remain.",
         "data": {
           "selected_devices": "Devices"
         }
@@ -63,16 +63,26 @@
           "callback_port": "Home Assistant HTTP port",
           "status_interval": "Status refresh interval"
         }
+      },
+      "reconfigure": {
+        "title": "Manage Hisense devices",
+        "menu_options": {
+          "cloud": "Discover or refresh devices from an app account",
+          "manual": "Add a device with a LAN key",
+          "manage_devices": "Choose devices to keep"
+        }
       }
     },
     "error": {
       "cannot_connect": "Could not connect to the Hisense/Ayla service or the credentials were rejected.",
       "device_not_found": "No matching device was found.",
       "invalid_manual_config": "Manual configuration is incomplete or invalid.",
-      "no_device_selected": "Select at least one device."
+      "no_device_selected": "Select at least one device.",
+      "duplicate_device": "A device MAC address or IP address is already configured."
     },
     "abort": {
-      "already_configured": "This device is already configured."
+      "already_configured": "This device is already configured.",
+      "reconfigure_successful": "Device configuration updated."
     }
   },
   "options": {

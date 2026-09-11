@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ipaddress import IPv4Address
 import logging
 from typing import Any
 
@@ -17,6 +18,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import section
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
     SelectSelector,
@@ -95,6 +97,52 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         }),
     )
 
+  async def async_step_reconfigure(self, user_input=None):
+    """Manage devices without replacing the configuration."""
+    return self.async_show_menu(
+        step_id="reconfigure", menu_options=["cloud", "manual", "manage_devices"])
+
+  async def async_step_manage_devices(self, user_input=None):
+    """Choose which configured devices to keep."""
+    self._cloud_setup = dict(self._get_reconfigure_entry().data)
+    return await self.async_step_select_devices(user_input)
+
+  def _conflicts(self, devices):
+    """Reject duplicate devices and ambiguous source IP routing."""
+    own_id = self.context.get("entry_id") if self.source == "reconfigure" else None
+    others = [device for entry in self.hass.config_entries.async_entries(DOMAIN)
+              if entry.entry_id != own_id for device in entry.data[CONF_DEVICES]]
+    for key in ("mac_address", "ip_address"):
+      values = [device[key] for device in devices]
+      if len(values) != len(set(values)) or set(values) & {d[key] for d in others}:
+        return True
+    return False
+
+  def _save_devices(self, devices, data):
+    """Save selection; the existing update listener performs one reload."""
+    if self.source != "reconfigure":
+      return self.async_create_entry(
+          title=", ".join(d["name"] for d in devices), data={**data, CONF_DEVICES: devices})
+    entry = self._get_reconfigure_entry()
+    removed = {d["mac_address"] for d in entry.data[CONF_DEVICES]} - {
+        d["mac_address"] for d in devices}
+    result = self.async_update_and_abort(
+        entry, unique_id=_unique_id(devices), data_updates={CONF_DEVICES: devices},
+        title=", ".join(d["name"] for d in devices), reason="reconfigure_successful")
+    device_registry = dr.async_get(self.hass)
+    entity_registry = er.async_get(self.hass)
+    for device in dr.async_entries_for_config_entry(device_registry, entry.entry_id):
+      if not any((DOMAIN, mac) in device.identifiers for mac in removed):
+        continue
+      for entity in er.async_entries_for_config_entry(entity_registry, entry.entry_id):
+        if entity.device_id == device.id:
+          entity_registry.async_remove(entity.entity_id)
+      if hasattr(device, "config_entry_id"):
+        device_registry.async_remove_device(device.id)
+      else:
+        device_registry.async_update_device(device.id, remove_config_entry_id=entry.entry_id)
+    return result
+
   async def async_step_cloud(self, user_input: dict[str, Any] | None = None):
     """Discover devices through the Hisense/Ayla account."""
     errors: dict[str, str] = {}
@@ -136,6 +184,11 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                                                           DEFAULT_STATUS_INTERVAL),
               CONF_TEMP_TYPE: temp_type,
           }
+          if self.source == "reconfigure":
+            existing = self._get_reconfigure_entry().data[CONF_DEVICES]
+            by_mac = {d["mac_address"]: d for d in existing}
+            by_mac.update({d["mac_address"]: d for d in devices})
+            self._cloud_setup[CONF_DEVICES] = list(by_mac.values())
           return await self.async_step_select_devices()
 
     return self.async_show_form(
@@ -183,17 +236,13 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
       selected_devices = [device for device in devices if device["mac_address"] in selected]
       if not selected_devices:
         errors["base"] = "no_device_selected"
+      elif self._conflicts(selected_devices):
+        errors["base"] = "duplicate_device"
       else:
-        await self.async_set_unique_id(_unique_id(selected_devices))
-        self._abort_if_unique_id_configured()
-        title = ", ".join(device["name"] for device in selected_devices)
-        return self.async_create_entry(
-            title=title,
-            data={
-                **cloud_setup,
-                CONF_DEVICES: selected_devices,
-            },
-        )
+        if self.source != "reconfigure":
+          await self.async_set_unique_id(_unique_id(selected_devices))
+          self._abort_if_unique_id_configured()
+        return self._save_devices(selected_devices, cloud_setup)
 
     return self.async_show_form(
         step_id="select_devices",
@@ -221,23 +270,24 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
       except (KeyError, ValueError):
         errors["base"] = "invalid_manual_config"
       else:
-        await self.async_set_unique_id(_unique_id([device]))
-        self._abort_if_unique_id_configured()
-        return self.async_create_entry(
-            title=device["name"],
-            data={
-                CONF_APP: device["app"],
-                CONF_DEVICES: [device],
-                CONF_LOCAL_IP: _blank_to_none(user_input.get(CONF_LOCAL_IP)),
-                CONF_CALLBACK_PORT: user_input[CONF_CALLBACK_PORT],
-                CONF_STATUS_INTERVAL: user_input[CONF_STATUS_INTERVAL],
-                CONF_TEMP_TYPE: user_input[CONF_TEMP_TYPE],
-            },
-        )
+        devices = [device]
+        if self.source == "reconfigure":
+          devices = [*self._get_reconfigure_entry().data[CONF_DEVICES], device]
+        if self._conflicts(devices):
+          errors["base"] = "duplicate_device"
+        else:
+          if self.source != "reconfigure":
+            await self.async_set_unique_id(_unique_id(devices))
+            self._abort_if_unique_id_configured()
+          return self._save_devices(devices, {
+              CONF_APP: device["app"],
+              CONF_LOCAL_IP: _blank_to_none(user_input.get(CONF_LOCAL_IP)),
+              CONF_CALLBACK_PORT: user_input.get(CONF_CALLBACK_PORT, DEFAULT_CALLBACK_PORT),
+              CONF_STATUS_INTERVAL: user_input.get(CONF_STATUS_INTERVAL, DEFAULT_STATUS_INTERVAL),
+              CONF_TEMP_TYPE: user_input[CONF_TEMP_TYPE],
+          })
 
-    return self.async_show_form(
-        step_id="manual",
-        data_schema=vol.Schema({
+    schema = {
             vol.Required(CONF_NAME): str,
             vol.Required(CONF_APP, default="hisense-eu"):
                 SelectSelector(
@@ -255,9 +305,11 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             vol.Optional(CONF_LOCAL_IP, default=""): str,
             vol.Required(CONF_CALLBACK_PORT, default=DEFAULT_CALLBACK_PORT): int,
             vol.Required(CONF_STATUS_INTERVAL, default=DEFAULT_STATUS_INTERVAL): int,
-        }),
-        errors=errors,
-    )
+        }
+    if self.source == "reconfigure":
+      schema = {key: value for key, value in schema.items()
+                if key.schema not in (CONF_LOCAL_IP, CONF_CALLBACK_PORT, CONF_STATUS_INTERVAL)}
+    return self.async_show_form(step_id="manual", data_schema=vol.Schema(schema), errors=errors)
 
 
 class HisenseOptionsFlow(config_entries.OptionsFlow):
@@ -273,8 +325,8 @@ class HisenseOptionsFlow(config_entries.OptionsFlow):
           title="",
           data={
               CONF_LOCAL_IP: _blank_to_none(user_input.get(CONF_LOCAL_IP)),
-              CONF_CALLBACK_PORT: user_input[CONF_CALLBACK_PORT],
-              CONF_STATUS_INTERVAL: user_input[CONF_STATUS_INTERVAL],
+              CONF_CALLBACK_PORT: user_input.get(CONF_CALLBACK_PORT, DEFAULT_CALLBACK_PORT),
+              CONF_STATUS_INTERVAL: user_input.get(CONF_STATUS_INTERVAL, DEFAULT_STATUS_INTERVAL),
               CONF_TEMP_TYPE: user_input[CONF_TEMP_TYPE],
           },
       )
@@ -285,9 +337,7 @@ class HisenseOptionsFlow(config_entries.OptionsFlow):
             vol.Optional(
                 CONF_LOCAL_IP,
                 default=self._entry.options.get(
-                    CONF_LOCAL_IP,
-                    self._entry.data.get(CONF_LOCAL_IP) or "",
-                ),
+                    CONF_LOCAL_IP, self._entry.data.get(CONF_LOCAL_IP)) or "",
             ):
                 str,
             vol.Required(
@@ -330,7 +380,10 @@ def _blank_to_none(value: str | None) -> str | None:
 
 
 def _normalize_mac(mac_address: str) -> str:
-  return mac_address.replace(":", "").replace("-", "").lower()
+  normalized = mac_address.strip().replace(":", "").replace("-", "").lower()
+  if len(normalized) != 12 or any(c not in "0123456789abcdef" for c in normalized):
+    raise ValueError("Invalid MAC address")
+  return normalized
 
 
 def _device_option(device: dict[str, Any]) -> dict[str, str]:
@@ -360,7 +413,7 @@ def _device_config_from_cloud(
       "dsn": device.get("dsn"),
       "temp_type": temp_type,
       "mac_address": _normalize_mac(device["mac"]),
-      "ip_address": device["lan_ip"],
+      "ip_address": str(IPv4Address(device["lan_ip"])),
       "lanip_key": device["lanip_key"],
       "lanip_key_id": device["lanip_key_id"],
   }
@@ -375,7 +428,7 @@ def _device_config_from_manual(user_input: dict[str, Any]) -> dict[str, Any]:
       "dsn": None,
       "temp_type": user_input[CONF_TEMP_TYPE],
       "mac_address": _normalize_mac(user_input[CONF_MAC_ADDRESS]),
-      "ip_address": user_input[CONF_HOST],
+      "ip_address": str(IPv4Address(user_input[CONF_HOST])),
       "lanip_key": user_input[CONF_LANIP_KEY],
       "lanip_key_id": user_input[CONF_LANIP_KEY_ID],
   }

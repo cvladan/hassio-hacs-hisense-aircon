@@ -27,7 +27,6 @@ SETUP_METHOD_MANUAL = "manual"
 
 TEMP_TYPE_OPTIONS = [CONF_TEMP_TYPE_AUTO, "C", "F"]
 
-ACTIVE_CONTROLLER = "active_controller"
 VIEWS_REGISTERED = "views_registered"
 
 
