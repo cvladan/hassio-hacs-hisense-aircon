@@ -1,7 +1,9 @@
 {
   "domain": "hisense_aircon",
   "name": "Hisense Air Conditioner",
-  "codeowners": [],
+  "codeowners": [
+    "@cvladan"
+  ],
   "config_flow": true,
   "dependencies": [
     "http"

@@ -241,6 +241,8 @@ Protocol prefixes mean:
 
 ## Credits
 
+Maintained by [@cvladan](https://github.com/cvladan). Thanks to [@wifi75](https://github.com/wifi75) for the logo!
+
 The LAN protocol implementation is based on the original Ayla/Hisense AirCon project logic and has been repackaged as a native Home Assistant custom integration.
 
 This project is not affiliated with Hisense, Ayla Networks, Fujitsu, or their subsidiaries.

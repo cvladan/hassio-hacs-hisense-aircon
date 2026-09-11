@@ -82,6 +82,7 @@ class HisenseEntity(Entity):
         model=device.model,
         name=device.name,
         sw_version=device.sw_version,
+        configuration_url="https://github.com/cvladan/hassio-hacs-hisense-aircon",
     )
 
   @property
