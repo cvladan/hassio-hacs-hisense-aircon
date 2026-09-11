@@ -3,12 +3,17 @@ name: Validate integration
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
   test:
+    strategy:
+      fail-fast: false
+      matrix:
+        homeassistant: ["2026.3.0", "2026.9.1"]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,7 +21,7 @@ jobs:
         with:
           python-version: '3.14'
       - name: Install test dependencies
-        run: pip install homeassistant==2026.9.1 dataclasses-json==0.6.7 getmac==0.9.5 pycryptodome==3.23.0
+        run: pip install homeassistant==${{ matrix.homeassistant }} dataclasses-json==0.6.7 getmac==0.9.5 pycryptodome==3.23.0
       - name: Run regression checks
         run: python -m unittest discover -s tests -v
       - name: Check Python and JSON files
@@ -32,3 +37,17 @@ jobs:
           for path in root.rglob('*.json'):
               json.loads(path.read_text())
           PY
+
+  hacs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: hacs/action@main
+        with:
+          category: integration
+          comment: false
+
+  hassfest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: home-assistant/actions/hassfest@master

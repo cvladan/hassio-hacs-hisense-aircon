@@ -27,7 +27,8 @@ class ConfigFlowTests(unittest.IsolatedAsyncioTestCase):
     self.hass = HomeAssistant(self.directory.name)
     frame.async_setup(self.hass)
     self.hass.config_entries = ConfigEntries(self.hass, {})
-    dr.async_setup(self.hass)
+    if hasattr(dr, "async_setup"):
+      dr.async_setup(self.hass)
     await dr.async_load(self.hass, load_empty=True)
     await er.async_load(self.hass, load_empty=True)
     self.entry = self.add_entry([device()])
