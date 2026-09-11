@@ -145,7 +145,7 @@ When upgrading from 1.2, replace combined Hisense swing actions with these two a
 | `horizontal` | `off` | `on` |
 | `both` | `on` | `on` |
 
-The new `climate.set_swing_mode` with `off` stops vertical swing only. To stop both directions, send both actions with `off`. Entity IDs stay the same. `climate.turn_on` selects auto mode; use `climate.set_hvac_mode` if an automation needs a specific mode.
+The new `climate.set_swing_mode` with `off` stops vertical swing only. To stop both directions, send both actions with `off`. Entity IDs stay the same. `climate.turn_on` sends the device power command without selecting Auto. Use `climate.set_hvac_mode` when an automation needs a specific mode.
 
 Sleep, Quiet, Eco, Super, backlight, swing angle, and the device display temperature unit remain separate controls. Humidifier controls also remain. Fujitsu controls that the climate entity does not provide, such as horizontal louver control, are kept.
 

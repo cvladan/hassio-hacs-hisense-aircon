@@ -130,3 +130,29 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
       climate = HisenseClimate(Mock(), Device.create({**device(), 'model': model}, lambda: None))
       self.assertEqual(ClimateEntityFeature.SWING_MODE in climate.supported_features, vertical)
       self.assertNotIn(ClimateEntityFeature.SWING_HORIZONTAL_MODE, climate.supported_features)
+
+  async def test_turn_on_does_not_select_auto(self):
+    from custom_components.hisense_aircon.climate import HisenseClimate
+    for packed in (False, True):
+      unit = ac() if packed else Device.create(device(), lambda: None)
+      unit.update_property('t_work_mode', AcWorkMode.COOL)
+      unit.update_property('t_power', Power.OFF)
+      climate = HisenseClimate(Mock(), unit)
+      climate.async_write_ha_state = Mock()
+      await climate.async_turn_on()
+      self.assertEqual(unit.commands_queue.qsize(), 1)
+      command = unit.commands_queue.get_nowait()
+      prop = command.command['properties'][0]['property']
+      if packed:
+        self.assertEqual(control_value.get_work_mode(prop['value']), AcWorkMode.COOL)
+      else:
+        self.assertEqual((prop['name'], prop['value']), ('t_power', 1))
+      command.updater()
+      self.assertEqual(unit.get_property('t_work_mode'), AcWorkMode.COOL)
+    for model in ('AP-WA1E', 'AP-WB1E'):
+      unit = Device.create({**device(), 'model': model}, lambda: None)
+      climate = HisenseClimate(Mock(), unit)
+      climate.async_write_ha_state = Mock()
+      await climate.async_turn_on()
+      prop = unit.commands_queue.get_nowait().command['properties'][0]['property']
+      self.assertEqual((prop['name'], prop['value']), ('operation_mode', 1))

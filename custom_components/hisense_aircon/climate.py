@@ -206,7 +206,9 @@ class HisenseClimate(HisenseEntity, ClimateEntity):
 
   async def async_turn_on(self) -> None:
     """Turn the device on."""
-    await self.async_set_hvac_mode(HVACMode.AUTO)
+    prop = self.device.topics.get("power") or self.device.topics["work_mode"]
+    self.device.queue_command(prop, "ON")
+    self.async_write_ha_state()
 
   async def async_turn_off(self) -> None:
     """Turn the device off."""
