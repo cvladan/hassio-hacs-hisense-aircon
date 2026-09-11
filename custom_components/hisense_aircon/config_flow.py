@@ -100,12 +100,45 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
   async def async_step_reconfigure(self, user_input=None):
     """Manage devices without replacing the configuration."""
     return self.async_show_menu(
-        step_id="reconfigure", menu_options=["cloud", "manual", "manage_devices"])
+        step_id="reconfigure", menu_options=["cloud", "manual", "manage_devices", "edit_device"])
 
   async def async_step_manage_devices(self, user_input=None):
     """Choose which configured devices to keep."""
     self._cloud_setup = dict(self._get_reconfigure_entry().data)
     return await self.async_step_select_devices(user_input)
+
+  async def async_step_edit_device(self, user_input=None):
+    """Select the device whose IP address changed."""
+    devices = self._get_reconfigure_entry().data[CONF_DEVICES]
+    if user_input is not None:
+      self._edit_mac = user_input[CONF_MAC_ADDRESS]
+      return await self.async_step_edit_ip()
+    return self.async_show_form(step_id="edit_device", data_schema=vol.Schema({
+        vol.Required(CONF_MAC_ADDRESS): SelectSelector(SelectSelectorConfig(
+            options=[_device_option(d) for d in devices], mode=SelectSelectorMode.DROPDOWN)),
+    }))
+
+  async def async_step_edit_ip(self, user_input=None):
+    """Change only the selected device; reload rebuilds its callback and notifier maps."""
+    entry = self._get_reconfigure_entry()
+    devices = entry.data[CONF_DEVICES]
+    current = next(d for d in devices if d[CONF_MAC_ADDRESS] == self._edit_mac)
+    errors = {}
+    if user_input is not None:
+      try:
+        address = str(IPv4Address(user_input[CONF_HOST]))
+      except ValueError:
+        errors["base"] = "invalid_manual_config"
+      else:
+        updated = [{**d, "ip_address": address} if d[CONF_MAC_ADDRESS] == self._edit_mac
+                   else d for d in devices]
+        if self._conflicts(updated):
+          errors["base"] = "duplicate_device"
+        else:
+          return self._save_devices(updated, entry.data)
+    return self.async_show_form(step_id="edit_ip", errors=errors, data_schema=vol.Schema({
+        vol.Required(CONF_HOST, default=current["ip_address"]): str,
+    }))
 
   def _conflicts(self, devices):
     """Reject duplicate devices and ambiguous source IP routing."""
@@ -208,8 +241,8 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Schema({
                         vol.Optional(CONF_DEVICE_NAME, default=""): str,
                         vol.Optional(CONF_LOCAL_IP, default=""): str,
-                        vol.Optional(CONF_CALLBACK_PORT, default=DEFAULT_CALLBACK_PORT): int,
-                        vol.Optional(CONF_STATUS_INTERVAL, default=DEFAULT_STATUS_INTERVAL): int,
+                        vol.Optional(CONF_CALLBACK_PORT, default=DEFAULT_CALLBACK_PORT): vol.All(int, vol.Range(min=1, max=65535)),
+                        vol.Optional(CONF_STATUS_INTERVAL, default=DEFAULT_STATUS_INTERVAL): vol.All(int, vol.Range(min=1)),
                         vol.Optional(CONF_TEMP_TYPE, default=CONF_TEMP_TYPE_AUTO):
                             SelectSelector(
                                 SelectSelectorConfig(
@@ -303,8 +336,8 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             vol.Optional(CONF_SW_VERSION, default=""): str,
             vol.Required(CONF_TEMP_TYPE, default=_ha_temp_type(self.hass)): vol.In(["C", "F"]),
             vol.Optional(CONF_LOCAL_IP, default=""): str,
-            vol.Required(CONF_CALLBACK_PORT, default=DEFAULT_CALLBACK_PORT): int,
-            vol.Required(CONF_STATUS_INTERVAL, default=DEFAULT_STATUS_INTERVAL): int,
+            vol.Required(CONF_CALLBACK_PORT, default=DEFAULT_CALLBACK_PORT): vol.All(int, vol.Range(min=1, max=65535)),
+            vol.Required(CONF_STATUS_INTERVAL, default=DEFAULT_STATUS_INTERVAL): vol.All(int, vol.Range(min=1)),
         }
     if self.source == "reconfigure":
       schema = {key: value for key, value in schema.items()
@@ -347,7 +380,7 @@ class HisenseOptionsFlow(config_entries.OptionsFlow):
                     self._entry.data.get(CONF_CALLBACK_PORT, DEFAULT_CALLBACK_PORT),
                 ),
             ):
-                int,
+                vol.All(int, vol.Range(min=1, max=65535)),
             vol.Required(
                 CONF_STATUS_INTERVAL,
                 default=self._entry.options.get(
@@ -355,7 +388,7 @@ class HisenseOptionsFlow(config_entries.OptionsFlow):
                     self._entry.data.get(CONF_STATUS_INTERVAL, DEFAULT_STATUS_INTERVAL),
                 ),
             ):
-                int,
+                vol.All(int, vol.Range(min=1)),
             vol.Required(
                 CONF_TEMP_TYPE,
                 default=self._entry.options.get(

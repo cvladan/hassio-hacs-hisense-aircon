@@ -69,7 +69,20 @@
         "menu_options": {
           "cloud": "Discover or refresh devices from an app account",
           "manual": "Add a device with a LAN key",
-          "manage_devices": "Choose devices to keep"
+          "manage_devices": "Choose devices to keep",
+          "edit_device": "Change a device IP address"
+        }
+      },
+      "edit_device": {
+        "title": "Select a device",
+        "data": {
+          "mac_address": "Device"
+        }
+      },
+      "edit_ip": {
+        "title": "Change device IP address",
+        "data": {
+          "host": "Device IP address"
         }
       }
     },

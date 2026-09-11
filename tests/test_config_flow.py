@@ -104,3 +104,18 @@ class ConfigFlowTests(unittest.IsolatedAsyncioTestCase):
     request.remote = "192.0.2.99"
     with self.assertRaises(web.HTTPNotFound):
       _controller_from_request(request)
+
+  async def test_ip_change_updates_only_selected_device_and_validates_conflicts(self):
+    devices = [device(), device('aabbccddeeff', '192.0.2.2'), device('112233445566', '192.0.2.3')]
+    self.hass.config_entries.async_update_entry(self.entry, data={'devices': devices})
+    await self.flow.async_step_edit_device({'mac_address': 'aabbccddeeff'})
+    for address, error in [('bad-ip', 'invalid_manual_config'), ('192.0.2.1', 'duplicate_device')]:
+      result = await self.flow.async_step_edit_ip({'host': address})
+      self.assertEqual(result['errors']['base'], error)
+    result = await self.flow.async_step_edit_ip({'host': '192.0.2.20'})
+    self.assertEqual(result['type'], 'abort')
+    self.assertEqual([d['ip_address'] for d in self.entry.data['devices']],
+                     ['192.0.2.1', '192.0.2.20', '192.0.2.3'])
+    controller = HisenseController(self.hass, self.entry)
+    self.assertIn('192.0.2.20', controller.handlers.device_ips)
+    self.assertNotIn('192.0.2.2', controller.handlers.device_ips)
