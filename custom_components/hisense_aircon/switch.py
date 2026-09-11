@@ -40,7 +40,7 @@ class HisensePropertySwitch(HisensePropertyEntity, SwitchEntity):
   @property
   def is_on(self) -> bool | None:
     """Return true if the property is on."""
-    value = self.device.get_property(self.prop_name)
+    value = self.device.get_known_property(self.prop_name)
     if isinstance(value, enum.Enum):
       return value.name == "ON"
     if value is None:

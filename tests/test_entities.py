@@ -1,0 +1,44 @@
+"""Initial state and model compatibility checks."""
+
+from dataclasses import fields
+from types import SimpleNamespace
+import unittest
+from custom_components.hisense_aircon.aircon import Device
+from custom_components.hisense_aircon.climate import HisenseClimate, HVACMode
+from custom_components.hisense_aircon.entity import HisensePropertyEntity
+from custom_components.hisense_aircon.properties import FglOperationMode
+from test_config_flow import device
+
+
+class EntityTests(unittest.TestCase):
+  def test_defaults_are_not_measurements_and_equal_first_report_is_visible(self):
+    for model in ('AEH-W4E1', 'AP-WA1E', 'AP-WB1E', '0001-0401-0001'):
+      unit = Device.create({**device(), 'model': model}, lambda: None)
+      controller = SimpleNamespace(entry=SimpleNamespace(entry_id='test'))
+      for field in fields(unit.get_all_properties()):
+        entity = HisensePropertyEntity(controller, unit, field)
+        self.assertIsNone(entity.native_value, (model, field.name))
+      if model == 'AEH-W4E1':
+        self.assertIsNone(HisenseClimate(controller, unit).target_temperature)
+        unit.update_property('f_electricity', 100)
+        self.assertEqual(unit.get_reported_property('f_electricity'), 100)
+        unit.update_property('f_voltage', 0)
+        self.assertEqual(unit.get_reported_property('f_voltage'), 0)
+        unit.queue_command('t_temp', 23)
+        self.assertIsNone(unit.get_reported_property('t_temp'))
+        unit.commands_queue.get_nowait().updater()
+        self.assertIsNone(unit.get_reported_property('t_temp'))
+        self.assertEqual(unit.get_known_property('t_temp'), 23)
+
+  def test_fujitsu_mode_does_not_require_hisense_power_property(self):
+    for model in ('AP-WA1E', 'AP-WB1E'):
+      unit = Device.create({**device(), 'model': model}, lambda: None)
+      climate = HisenseClimate(SimpleNamespace(), unit)
+      self.assertIsNone(climate.hvac_mode)
+      unit.update_property('operation_mode', FglOperationMode.COOL)
+      self.assertEqual(climate.hvac_mode, HVACMode.COOL)
+      unit.queue_command('adjust_temperature', 22.5)
+      command = unit.commands_queue.get_nowait()
+      self.assertEqual(command.command['properties'][0]['property']['value'], 225)
+      command.updater()
+      self.assertEqual(climate.target_temperature, 22.5)

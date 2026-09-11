@@ -40,7 +40,7 @@ class HisensePropertyBinarySensor(HisensePropertyEntity, BinarySensorEntity):
   @property
   def is_on(self) -> bool | None:
     """Return true if the binary property is active."""
-    value = self.device.get_property(self.prop_name)
+    value = self.device.get_known_property(self.prop_name)
     if value is None:
       return None
     return bool(value)

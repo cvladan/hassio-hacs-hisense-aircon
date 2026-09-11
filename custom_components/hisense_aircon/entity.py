@@ -91,6 +91,7 @@ class HisenseEntity(Entity):
 
   async def async_added_to_hass(self) -> None:
     """Subscribe to device updates."""
+    await super().async_added_to_hass()
     self.async_on_remove(
         async_dispatcher_connect(
             self.hass,
@@ -115,7 +116,7 @@ class HisensePropertyEntity(HisenseEntity):
   @property
   def native_value(self) -> Any:
     """Return the current property value."""
-    return property_to_native_value(self.device.get_property(self.prop_name))
+    return property_to_native_value(self.device.get_known_property(self.prop_name))
 
   @property
   def extra_state_attributes(self) -> dict[str, Any]:

@@ -44,6 +44,8 @@ class Device(object):
                       if config.get('temp_type') == 'C' else TemperatureUnit.FAHRENHEIT)
     self._config = Config(config['lanip_key'], config['lanip_key_id'])
     self._properties = properties
+    self._reported_properties = {}
+    self._known_properties = set()
     self._pending_control = None
     self._pending_control_count = 0
     self._properties_lock = threading.RLock()
@@ -110,6 +112,14 @@ class Device(object):
     with self._properties_lock:
       return getattr(self._properties, name, None)
 
+  def get_reported_property(self, name: str):
+    """Return the last value received from the device, without protocol defaults."""
+    return self._reported_properties.get(name)
+
+  def get_known_property(self, name: str):
+    """Return received or sent state, excluding initialization defaults."""
+    return self.get_property(name) if name in self._known_properties else None
+
   def get_property_type(self, name: str):
     return (self._properties.get_type(name)
             if name in self._properties.__dataclass_fields__ else None)
@@ -123,7 +133,7 @@ class Device(object):
       return 1.0
     return float(self._properties.get_precision(prop_name))
 
-  def update_property(self, name: str, value, notify_value=None) -> None:
+  def update_property(self, name: str, value, notify_value=None, *, reported=True) -> None:
     """Update the stored properties, if changed."""
     if self._properties.get_type(name) is int:
       scale = self._properties.get_scale(name)
@@ -134,15 +144,15 @@ class Device(object):
       notify_value = value
 
     with self._properties_lock:
-      old_value = getattr(self._properties, name)
-      if value != old_value:
-        setattr(self._properties, name, value)
-        # logging.debug('Updated properties: %s' % self._properties)
-        if name == 't_control_value':
-          self._update_controlled_properties(value)
+      self._known_properties.add(name)
+      if reported:
+        self._reported_properties[name] = value
+      setattr(self._properties, name, value)
+      if name == 't_control_value':
+        self._update_controlled_properties(value, reported=reported)
       self._notify_listeners(name, notify_value)
 
-  def _update_controlled_properties(self, control: int):
+  def _update_controlled_properties(self, control: int, *, reported=True):
     raise NotImplementedError()
 
   def get_command_seq_no(self) -> int:
@@ -202,7 +212,7 @@ class Device(object):
         self._pending_control_count -= 1
         if self._pending_control_count == 0:
           self._pending_control = None
-      self.update_property(name, typed_value)
+      self.update_property(name, typed_value, reported=False)
     # Add as a high priority command.
     self.commands_queue.put_nowait(Command(10, time.time_ns(), command, property_updater))
 
@@ -277,11 +287,11 @@ class AcDevice(Device):
                          'angle6']
 
   # @override to add special support for t_power.
-  def update_property(self, name: str, value) -> None:
+  def update_property(self, name: str, value, *, reported=True) -> None:
     with self._properties_lock:
       # HomeAssistant expects an 'off' work mode when the AC is off.
       notify_value = 'off' if name == 't_work_mode' and self.get_power() == Power.OFF else None
-      super().update_property(name, value, notify_value)
+      super().update_property(name, value, notify_value, reported=reported)
       # HomeAssistant doesn't listen to changes in t_power, so notify also on a t_work_mode change.
       if name == 't_power':
         work_mode = 'off' if value == Power.OFF else self.get_property('t_work_mode')
@@ -544,7 +554,7 @@ class AcDevice(Device):
       logging.error('Cannot convert to control value property {}'.format(name))
       raise ValueError()
 
-  def _update_controlled_properties(self, control: int):
+  def _update_controlled_properties(self, control: int, *, reported=True):
     for name, decoder in (
         ('t_power', control_value.get_power),
         ('t_fan_speed', control_value.get_fan_speed),
@@ -562,7 +572,7 @@ class AcDevice(Device):
       except ValueError:
         logging.debug('Unknown %s in control value %s', name, control)
         value = None
-      self.update_property(name, value)
+      self.update_property(name, value, reported=reported)
 
 
 class FglDevice(Device):
