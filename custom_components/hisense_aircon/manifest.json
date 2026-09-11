@@ -6,7 +6,8 @@
   ],
   "config_flow": true,
   "dependencies": [
-    "http"
+    "http",
+    "network"
   ],
   "documentation": "https://github.com/cvladan/hassio-hacs-hisense-aircon",
   "integration_type": "hub",

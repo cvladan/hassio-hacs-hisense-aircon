@@ -9,6 +9,8 @@ from typing import Any, Coroutine
 from aiohttp import web
 
 from homeassistant.components.http import HomeAssistantView
+from homeassistant.components.network import async_get_source_ip
+from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -70,7 +72,12 @@ class HisenseController:
     self._register_views()
 
     for device in self.devices:
-      self._notifier.register_device(device)
+      try:
+        local_ip = self._option(CONF_LOCAL_IP) or await async_get_source_ip(
+            self.hass, target_ip=device.ip_address)
+      except (HomeAssistantError, OSError) as ex:
+        raise ConfigEntryNotReady("Could not determine the callback IP address.") from ex
+      self._notifier.register_device(device, local_ip)
       device.add_property_change_listener(self._handle_property_update)
 
     session = async_get_clientsession(self.hass)

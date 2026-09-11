@@ -247,7 +247,7 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 section(
                     vol.Schema({
                         vol.Optional(CONF_DEVICE_NAME, default=""): str,
-                        vol.Optional(CONF_LOCAL_IP, default=""): vol.Any(str, None),
+                        vol.Optional(CONF_LOCAL_IP, default=""): _local_ip,
                         vol.Optional(CONF_CALLBACK_PORT, default=DEFAULT_CALLBACK_PORT): vol.All(int, vol.Range(min=1, max=65535)),
                         vol.Optional(CONF_STATUS_INTERVAL, default=DEFAULT_STATUS_INTERVAL): vol.All(int, vol.Range(min=1)),
                         vol.Optional(CONF_TEMP_TYPE, default=CONF_TEMP_TYPE_AUTO):
@@ -342,7 +342,7 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             vol.Required(CONF_MODEL, default="AEH-W4E1"): str,
             vol.Optional(CONF_SW_VERSION, default=""): str,
             vol.Required(CONF_TEMP_TYPE, default=_ha_temp_type(self.hass)): vol.In(["C", "F"]),
-            vol.Optional(CONF_LOCAL_IP, default=""): vol.Any(str, None),
+            vol.Optional(CONF_LOCAL_IP, default=""): _local_ip,
             vol.Required(CONF_CALLBACK_PORT, default=DEFAULT_CALLBACK_PORT): vol.All(int, vol.Range(min=1, max=65535)),
             vol.Required(CONF_STATUS_INTERVAL, default=DEFAULT_STATUS_INTERVAL): vol.All(int, vol.Range(min=1)),
         }
@@ -379,7 +379,7 @@ class HisenseOptionsFlow(config_entries.OptionsFlow):
                 default=self._entry.options.get(
                     CONF_LOCAL_IP, self._entry.data.get(CONF_LOCAL_IP)) or "",
             ):
-                vol.Any(str, None),
+                _local_ip,
             vol.Required(
                 CONF_CALLBACK_PORT,
                 default=self._entry.options.get(
@@ -417,6 +417,12 @@ def _blank_to_none(value: str | None) -> str | None:
     return None
   value = value.strip()
   return value or None
+
+
+def _local_ip(value: str | None) -> str | None:
+  """Allow automatic selection or a valid IPv4 callback address."""
+  value = _blank_to_none(value)
+  return str(IPv4Address(value)) if value else None
 
 
 def _normalize_mac(mac_address: str) -> str:

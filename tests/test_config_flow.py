@@ -184,3 +184,57 @@ class ConfigFlowTests(unittest.IsolatedAsyncioTestCase):
           'custom_components.hisense_aircon.config_flow.async_get_clientsession'):
         result = await self.flow.async_step_cloud({'app': 'hisense-eu', 'username': 'u', 'password': 'secret'})
       self.assertEqual(result['errors']['base'], error)
+
+  async def test_local_ip_validation_in_each_form(self):
+    import voluptuous as vol
+    from custom_components.hisense_aircon.config_flow import HisenseOptionsFlow
+    options = HisenseOptionsFlow(self.entry)
+    options.hass = self.hass
+    schema = (await options.async_step_init())['data_schema']
+    self.assertEqual(schema({'local_ip': ' 192.0.2.100 '})['local_ip'], '192.0.2.100')
+    for address in ('bad-ip', '::1', '999.1.1.1'):
+      with self.assertRaises(vol.Invalid):
+        schema({'local_ip': address})
+    self.flow.context = {'source': 'user'}
+    for step in (self.flow.async_step_manual, self.flow.async_step_cloud):
+      schema = (await step())['data_schema']
+      values = schema.schema
+      if step == self.flow.async_step_cloud:
+        values = next(value.schema.schema for key, value in values.items()
+                      if key.schema == 'advanced_settings')
+      validator = next(value for key, value in values.items() if key.schema == 'local_ip')
+      self.assertIsNone(validator(''))
+      with self.assertRaises(ValueError):
+        validator('bad-ip')
+
+  async def test_callback_ip_selection_and_network_retry(self):
+    from unittest.mock import Mock
+    from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
+    self.hass.config_entries.async_update_entry(self.entry, data={
+        'devices': [device(), device('aabbccddeeff', '198.51.100.2')]})
+    controller = HisenseController(self.hass, self.entry)
+    with patch.object(controller, '_register_views'), patch(
+        'custom_components.hisense_aircon.controller.async_get_source_ip',
+        AsyncMock(side_effect=['192.0.2.100', '198.51.100.100'])) as source, patch(
+            'custom_components.hisense_aircon.controller.async_get_clientsession'), patch.object(
+                controller, '_create_background_task', side_effect=lambda coro, name: coro.close()):
+      await controller.async_start()
+    self.assertEqual([c.local_ip for c in controller._notifier._configurations],
+                     ['192.0.2.100', '198.51.100.100'])
+    self.assertEqual([call.kwargs['target_ip'] for call in source.call_args_list],
+                     ['192.0.2.1', '198.51.100.2'])
+    controller = HisenseController(self.hass, self.entry)
+    with patch.object(controller, '_register_views'), patch(
+        'custom_components.hisense_aircon.controller.async_get_source_ip',
+        AsyncMock(side_effect=HomeAssistantError('no route'))):
+      with self.assertRaises(ConfigEntryNotReady):
+        await controller.async_start()
+    self.hass.config_entries.async_update_entry(self.entry, options={'local_ip': '192.0.2.200'})
+    controller = HisenseController(self.hass, self.entry)
+    with patch.object(controller, '_register_views'), patch(
+        'custom_components.hisense_aircon.controller.async_get_source_ip', AsyncMock()) as source, patch(
+            'custom_components.hisense_aircon.controller.async_get_clientsession'), patch.object(
+                controller, '_create_background_task', side_effect=lambda coro, name: coro.close()):
+      await controller.async_start()
+    source.assert_not_awaited()
+    self.assertEqual([c.local_ip for c in controller._notifier._configurations], ['192.0.2.200'] * 2)

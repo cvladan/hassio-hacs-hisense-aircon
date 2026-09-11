@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from http import HTTPStatus
 import json
 import logging
-import socket
 import time
 
 from .aircon import Device
@@ -17,6 +16,7 @@ class _NotifyConfiguration:
   device: Device
   headers: dict
   last_timestamp: float
+  local_ip: str
   failures: int = 0
   next_attempt: float = 0
 
@@ -33,21 +33,9 @@ class Notifier:
 
     self._running = False
 
-    local_ip = local_ip or self._get_local_ip()
     self._json = {'local_reg': {'ip': local_ip, 'notify': 0, 'port': port, 'uri': '/local_lan'}}
 
-  def _get_local_ip(self):
-    sock = None
-    try:
-      sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-      sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-      sock.connect(('10.255.255.255', 1))
-      return sock.getsockname()[0]
-    finally:
-      if sock:
-        sock.close()
-
-  def register_device(self, device: Device):
+  def register_device(self, device: Device, local_ip: str | None = None):
     if device not in (conf.device for conf in self._configurations):
       headers = {
           'Accept': 'application/json',
@@ -56,7 +44,8 @@ class Notifier:
           'Host': device.ip_address,
           'Accept-Encoding': 'gzip'
       }
-      self._configurations.append(_NotifyConfiguration(device, headers, 0))
+      self._configurations.append(_NotifyConfiguration(
+          device, headers, 0, local_ip or self._json["local_reg"]["ip"]))
 
   def notify(self):
     loop = self._loop or asyncio.get_running_loop()
@@ -98,7 +87,7 @@ class Notifier:
         not config.device.available) and now - config.last_timestamp < self._KEEP_ALIVE_INTERVAL:
       return 0
     method = 'PUT' if config.device.available and config.failures == 0 else 'POST'
-    payload = {'local_reg': {**self._json['local_reg'], 'notify': int(queue_size > 0)}}
+    payload = {'local_reg': {**self._json['local_reg'], 'ip': config.local_ip, 'notify': int(queue_size > 0)}}
     url = f'http://{config.device.ip_address}/local_reg.json'
     _LOGGER.debug(f'[KeepAlive] Sending {method} {url} {json.dumps(payload)}')
     try:
