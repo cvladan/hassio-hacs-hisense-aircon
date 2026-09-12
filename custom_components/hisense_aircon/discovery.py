@@ -6,7 +6,14 @@ from http import HTTPStatus
 import json
 import logging
 
-from .app_mappings import *
+from .app_mappings import (
+    AYLA_DEVICES_SERVERS,
+    AYLA_USER_SERVERS,
+    CELSIUS_BASED_APPS,
+    SECRET_ID_EXTRA_MAP,
+    SECRET_ID_MAP,
+    SECRET_MAP,
+)
 from .error import Error, InvalidAuth
 
 _LOGGER = logging.getLogger(__name__)

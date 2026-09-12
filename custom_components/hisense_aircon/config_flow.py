@@ -30,6 +30,7 @@ from homeassistant.helpers.selector import (
     TextSelectorConfig,
     TextSelectorType,
 )
+from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
 
 from .app_mappings import SECRET_MAP
 from .const import (
@@ -134,6 +135,33 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     return self.async_show_menu(
         step_id="reconfigure", menu_options=["cloud", "manual", "manage_devices", "edit_device"])
 
+  async def async_step_dhcp(self, discovery_info: DhcpServiceInfo):
+    """Recover a configured device when Home Assistant discovers its new address."""
+    try:
+      mac = _normalize_mac(discovery_info.macaddress)
+      address = IPv4Address(discovery_info.ip)
+      if (address.is_unspecified or address.is_loopback or address.is_multicast
+          or address.is_link_local or address == IPv4Address("255.255.255.255")):
+        raise ValueError("Invalid device address")
+    except ValueError:
+      return self.async_abort(reason="invalid_discovery_info")
+    for entry in self.hass.config_entries.async_entries(DOMAIN):
+      devices = entry.data[CONF_DEVICES]
+      if not any(d[CONF_MAC_ADDRESS] == mac for d in devices):
+        continue
+      updated = [{**d, "ip_address": str(address)} if d[CONF_MAC_ADDRESS] == mac else d
+                 for d in devices]
+      if entry.disabled_by or updated == devices:
+        return self.async_abort(reason="already_configured")
+      if self._conflicts(updated, entry.entry_id):
+        return self.async_abort(reason="ip_address_conflict")
+      _LOGGER.info("Updating device %s IP address to %s after network discovery", mac, address)
+      # Loaded entries reload through their listener; failed entries need an explicit retry.
+      update = (self.async_update_and_abort if entry.update_listeners
+                else self.async_update_reload_and_abort)
+      return update(entry, data_updates={CONF_DEVICES: updated}, reason="already_configured")
+    return self.async_abort(reason="not_configured")
+
   async def async_step_manage_devices(self, user_input=None):
     """Choose which configured devices to keep."""
     self._cloud_setup = dict(self._get_reconfigure_entry().data)
@@ -172,9 +200,9 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         vol.Required(CONF_HOST, default=current["ip_address"]): str,
     }))
 
-  def _conflicts(self, devices):
+  def _conflicts(self, devices, entry_id=None):
     """Reject duplicate devices and ambiguous source IP routing."""
-    own_id = self.context.get("entry_id") if self.source == "reconfigure" else None
+    own_id = entry_id or (self.context.get("entry_id") if self.source == "reconfigure" else None)
     others = [device for entry in self.hass.config_entries.async_entries(DOMAIN)
               if entry.entry_id != own_id for device in entry.data[CONF_DEVICES]]
     for key in ("mac_address", "ip_address"):

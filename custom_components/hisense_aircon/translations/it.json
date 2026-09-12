@@ -149,7 +149,10 @@
     },
     "abort": {
       "already_configured": "Questo dispositivo è già configurato.",
-      "reconfigure_successful": "Configurazione dei dispositivi aggiornata."
+      "reconfigure_successful": "Configurazione dei dispositivi aggiornata.",
+      "invalid_discovery_info": "I dati di rete rilevati non contengono indirizzi MAC e IPv4 validi.",
+      "ip_address_conflict": "L’indirizzo IP rilevato è già assegnato a un altro dispositivo configurato.",
+      "not_configured": "Questo dispositivo non è configurato."
     }
   },
   "options": {

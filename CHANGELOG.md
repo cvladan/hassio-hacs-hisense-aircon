@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.5.0
+
+- Recover changed device IP addresses through Home Assistant DHCP discovery by matching registered MAC addresses. Preserve other devices, LAN keys, entities, and configuration options.
+- Reject invalid addresses and conflicts across configurations, avoid reloading for unchanged discoveries, and retry entries whose setup failed.
+- Remove unused imports and replace the cloud discovery wildcard import with explicit imports.
+- Remove the unused YAPF formatter configuration.
+
+Migration: Update and restart Home Assistant. Automatic IP updates require the Home Assistant `dhcp` integration, normally loaded by `default_config`, and network discovery visibility. No new LAN keys or device setup are needed. Manual IP changes remain available under Reconfigure when discovery cannot reach the device.
+
 ## 1.4.1
 
 - Suggest a free separate HTTP port when setting up direct HTTPS callbacks or opening options for an affected entry. Check the local port and skip ports saved by other configurations.

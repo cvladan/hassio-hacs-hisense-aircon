@@ -7,7 +7,7 @@ import enum
 from typing import Any
 
 from homeassistant.core import callback
-from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC, DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import Entity
 
@@ -79,6 +79,7 @@ class HisenseEntity(Entity):
     self.device = device
     self._attr_device_info = DeviceInfo(
         identifiers={(DOMAIN, device.mac_address)},
+        connections={(CONNECTION_NETWORK_MAC, device.mac_address)},
         manufacturer=f"Hisense ({device.app})",
         model=device.model,
         name=device.name,

@@ -123,6 +123,10 @@ Open the integration entry menu in **Settings > Devices & services** and choose 
 
 You can also add another integration entry for a different account or a manual device. Each device must have a unique MAC address and IP address across all entries. Runtime options such as the callback address apply to the entry and are edited through **Configure**.
 
+From version 1.5.0, a changed IP address is updated automatically when Home Assistant's DHCP discovery reports the configured device's MAC address. Only that device's saved address changes, and its configuration reloads to reconnect. Existing entities and LAN keys are preserved. This is enabled automatically when the Home Assistant `dhcp` integration is loaded, normally through `default_config`.
+
+Recovery depends on Home Assistant receiving the new address through DHCP, device trackers, or its periodic network discovery. It does not start a separate scan when a device disconnects. If discovery cannot see the device, for example across an isolated VLAN, use **Reconfigure > Change a device IP address** or a DHCP reservation on your router.
+
 ## Updating Automations That Use Separate Climate Controls
 
 The climate entity now provides the main controls. The matching standalone entities are removed on the next integration setup, including existing registry entries. The climate entity ID stays the same. Update dashboards, scripts, scenes, and automations that used these controls:

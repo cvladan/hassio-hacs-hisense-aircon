@@ -8,12 +8,8 @@ import json
 import math
 import logging
 import queue
-import random
-import string
-import time
-from typing import Callable
 
-from .config import Config, Encryption
+from .config import Encryption
 from .aircon import Device
 from .error import Error, KeyIdReplaced
 

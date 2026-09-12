@@ -9,6 +9,7 @@ from aiohttp import web
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry, ConfigEntries
 from homeassistant.helpers import device_registry as dr, entity_registry as er, frame
+from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
 
 from custom_components.hisense_aircon.config_flow import HisenseConfigFlow
 from custom_components.hisense_aircon.const import DOMAIN
@@ -123,6 +124,64 @@ class ConfigFlowTests(unittest.IsolatedAsyncioTestCase):
     self.assertIn('192.0.2.20', controller.handlers.device_ips)
     self.assertNotIn('192.0.2.2', controller.handlers.device_ips)
 
+  async def test_dhcp_recovers_only_matching_device_and_reloads_once(self):
+    from custom_components.hisense_aircon import _async_update_listener
+    from custom_components.hisense_aircon.entity import HisenseEntity
+
+    other = self.add_entry([device('aabbccddeeff', '192.0.2.2'),
+                            device('112233445566', '192.0.2.3')])
+    controller = HisenseController(self.hass, other)
+    info = HisenseEntity(controller, controller.devices[0]).device_info
+    record = dr.async_get(self.hass).async_get_or_create(config_entry_id=other.entry_id, **info)
+    self.assertIn((dr.CONNECTION_NETWORK_MAC, 'aa:bb:cc:dd:ee:ff'), record.connections)
+    self.flow.context = {'source': 'dhcp'}
+    self.hass.config_entries.async_update_entry(other, unique_id='existing-identity')
+    remove_listener = other.add_update_listener(_async_update_listener)
+
+    with patch.object(self.hass.config_entries, 'async_reload', new_callable=AsyncMock) as reload:
+      for mac, ip, reason in [
+          ('not-a-mac', '192.0.2.20', 'invalid_discovery_info'),
+          ('aabbccddeeff', 'invalid', 'invalid_discovery_info'),
+          ('aabbccddeeff', '::1', 'invalid_discovery_info'),
+          ('aabbccddeeff', '127.0.0.1', 'invalid_discovery_info'),
+          ('aabbccddeeff', '224.0.0.1', 'invalid_discovery_info'),
+          ('aabbccddeeff', '0.0.0.0', 'invalid_discovery_info'),
+          ('aabbccddeeff', '169.254.1.1', 'invalid_discovery_info'),
+          ('aabbccddeeff', '255.255.255.255', 'invalid_discovery_info'),
+          ('000000000001', '192.0.2.20', 'not_configured'),
+          ('aabbccddeeff', '192.0.2.1', 'ip_address_conflict'),
+          ('aabbccddeeff', '192.0.2.3', 'ip_address_conflict'),
+          ('aabbccddeeff', '192.0.2.2', 'already_configured'),
+      ]:
+        result = await self.flow.async_step_dhcp(DhcpServiceInfo(ip, '', mac))
+        self.assertEqual(result['reason'], reason, (mac, ip))
+      await self.hass.async_block_till_done()
+      reload.assert_not_awaited()
+
+      result = await self.flow.async_step_dhcp(DhcpServiceInfo('192.0.2.20', '', 'AA:BB:CC:DD:EE:FF'))
+      self.assertEqual(result['reason'], 'already_configured')
+      await self.hass.async_block_till_done()
+      reload.assert_awaited_once_with(other.entry_id)
+      self.assertEqual(other.unique_id, 'existing-identity')
+      self.assertEqual(other.options, {'status_interval': 600})
+      self.assertEqual(other.data['devices'], [device('aabbccddeeff', '192.0.2.20'),
+                                               device('112233445566', '192.0.2.3')])
+      self.assertEqual(self.entry.data['devices'], [device()])
+      controller = HisenseController(self.hass, other)
+      self.assertEqual(controller.handlers.device_ips, {'192.0.2.20', '192.0.2.3'})
+      controller._notifier.register_device(controller.devices[0], '192.0.2.100')
+      self.assertEqual(controller._notifier._configurations[0].headers['Host'], '192.0.2.20')
+      await self.flow.async_step_dhcp(DhcpServiceInfo('192.0.2.20', '', 'aabbccddeeff'))
+      await self.hass.async_block_till_done()
+      reload.assert_awaited_once()
+
+      # Failed setup has no update listener, so discovery must schedule the retry.
+      remove_listener()
+      reload.reset_mock()
+      await self.flow.async_step_dhcp(DhcpServiceInfo('192.0.2.21', '', 'aabbccddeeff'))
+      await self.hass.async_block_till_done()
+      reload.assert_awaited_once_with(other.entry_id)
+
   async def test_setup_removes_only_its_registered_climate_duplicates(self):
     from custom_components.hisense_aircon import async_setup_entry
     from custom_components.hisense_aircon.aircon import Device
@@ -213,7 +272,6 @@ class ConfigFlowTests(unittest.IsolatedAsyncioTestCase):
       self.assertTrue(serialize(form['data_schema'], custom_serializer=cv.custom_serializer))
 
   async def test_callback_ip_selection_and_network_retry(self):
-    from unittest.mock import Mock
     from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
     self.hass.config_entries.async_update_entry(self.entry, data={
         'devices': [device(), device('aabbccddeeff', '198.51.100.2')]})

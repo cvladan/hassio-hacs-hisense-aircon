@@ -29,3 +29,4 @@ class MetadataTests(unittest.TestCase):
     self.assertEqual(manifest['codeowners'], ['@cvladan'])
     self.assertIn(f"## {manifest['version']}\n", (ROOT / 'CHANGELOG.md').read_text())
     self.assertFalse(manifest['single_config_entry'])
+    self.assertEqual(manifest['dhcp'], [{'registered_devices': True}])

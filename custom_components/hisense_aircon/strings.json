@@ -105,7 +105,10 @@
     },
     "abort": {
       "already_configured": "This device is already configured.",
-      "reconfigure_successful": "Device configuration updated."
+      "reconfigure_successful": "Device configuration updated.",
+      "invalid_discovery_info": "Network discovery did not provide valid MAC and IPv4 addresses.",
+      "ip_address_conflict": "The discovered IP address is already assigned to another configured device.",
+      "not_configured": "This device is not configured."
     }
   },
   "options": {
