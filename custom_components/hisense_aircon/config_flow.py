@@ -20,7 +20,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import section
-from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers import device_registry as dr, entity_registry as er, issue_registry as ir
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
     SelectSelector,
@@ -222,6 +222,8 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     result = self.async_update_and_abort(
         entry, unique_id=_unique_id(devices), data_updates={CONF_DEVICES: devices},
         title=", ".join(d["name"] for d in devices), reason="reconfigure_successful")
+    for mac in removed:
+      ir.async_delete_issue(self.hass, DOMAIN, f"{entry.entry_id}_{mac}_lan_key")
     device_registry = dr.async_get(self.hass)
     entity_registry = er.async_get(self.hass)
     for device in dr.async_entries_for_config_entry(device_registry, entry.entry_id):
@@ -260,7 +262,6 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             user_input[CONF_USERNAME],
             user_input[CONF_PASSWORD],
             _blank_to_none(advanced_settings.get(CONF_DEVICE_NAME)),
-            False,
         )
         temp_type = advanced_settings.get(CONF_TEMP_TYPE, CONF_TEMP_TYPE_AUTO)
         devices = [

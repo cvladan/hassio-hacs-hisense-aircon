@@ -33,7 +33,6 @@ async def async_setup_entry(
 class HisensePropertySwitch(HisensePropertyEntity, SwitchEntity):
   """A writable ON/OFF property."""
 
-  _attr_should_poll = False
 
   @property
   def is_on(self) -> bool | None:
@@ -51,7 +50,6 @@ class HisensePropertySwitch(HisensePropertyEntity, SwitchEntity):
       self.device.queue_command(self.prop_name, "ON")
     else:
       self.device.queue_command(self.prop_name, True)
-    self.async_write_ha_state()
 
   async def async_turn_off(self, **kwargs) -> None:
     """Turn the property off."""
@@ -59,4 +57,3 @@ class HisensePropertySwitch(HisensePropertyEntity, SwitchEntity):
       self.device.queue_command(self.prop_name, "OFF")
     else:
       self.device.queue_command(self.prop_name, False)
-    self.async_write_ha_state()

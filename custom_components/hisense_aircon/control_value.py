@@ -11,7 +11,7 @@ def get_fan_speed(control: int) -> FanSpeed:
   return FanSpeed(int_val)
 
 
-def set_fan_speed(control: int, value: FanSpeed) -> None:
+def set_fan_speed(control: int, value: FanSpeed) -> int:
   int_val = value.value
   return (control & ~31) | ((int_val << 1) | 1)
 
@@ -21,7 +21,7 @@ def get_power(control: int) -> Power:
   return Power(int_val)
 
 
-def set_power(control: int, value: Power) -> None:
+def set_power(control: int, value: Power) -> int:
   int_val = value.value
   return (control & ~(3 << 5)) | (((int_val << 1) | 1) << 5)
 
@@ -31,7 +31,7 @@ def get_work_mode(control: int) -> AcWorkMode:
   return AcWorkMode(int_val)
 
 
-def set_work_mode(control: int, value: AcWorkMode) -> None:
+def set_work_mode(control: int, value: AcWorkMode) -> int:
   int_val = value.value
   return (control & ~(15 << 8)) | (((int_val << 1) | 1) << 8)
 
@@ -41,7 +41,7 @@ def get_heat_cold(control: int) -> FastColdHeat:
   return FastColdHeat(int_val)
 
 
-def set_heat_cold(control: int, value: FastColdHeat) -> None:
+def set_heat_cold(control: int, value: FastColdHeat) -> int:
   int_val = value.value
   return (control & ~(3 << 12)) | (((int_val << 1) | 1) << 12)
 
@@ -51,7 +51,7 @@ def get_eco(control: int) -> Economy:
   return Economy(int_val)
 
 
-def set_eco(control: int, value: Economy) -> None:
+def set_eco(control: int, value: Economy) -> int:
   int_val = value.value
   return (control & ~(3 << 14)) | (((int_val << 1) | 1) << 14)
 
@@ -60,7 +60,7 @@ def get_temp(control: int) -> int:
   return (control >> 17) & 63
 
 
-def set_temp(control: int, value: int) -> None:
+def set_temp(control: int, value: int) -> int:
   return (control & ~(127 << 16)) | (((value << 1) | 1) << 16)
 
 
@@ -69,7 +69,7 @@ def get_fan_power(control: int) -> AirFlow:
   return AirFlow(int_val)
 
 
-def set_fan_power(control: int, value: AirFlow) -> None:
+def set_fan_power(control: int, value: AirFlow) -> int:
   int_val = value.value
   return (control & ~(3 << 24)) | (((int_val << 1) | 1) << 24)
 
@@ -79,7 +79,7 @@ def get_fan_lr(control: int) -> AirFlow:
   return AirFlow(int_val)
 
 
-def set_fan_lr(control: int, value: AirFlow) -> None:
+def set_fan_lr(control: int, value: AirFlow) -> int:
   int_val = value.value
   return (control & ~(3 << 26)) | (((int_val << 1) | 1) << 26)
 
@@ -89,7 +89,7 @@ def get_fan_mute(control: int) -> Quiet:
   return Quiet(int_val)
 
 
-def set_fan_mute(control: int, value: Quiet) -> None:
+def set_fan_mute(control: int, value: Quiet) -> int:
   int_val = value.value
   return (control & ~(3 << 28)) | (((int_val << 1) | 1) << 28)
 
@@ -99,6 +99,6 @@ def get_temptype(control: int) -> TemperatureUnit:
   return TemperatureUnit(int_val)
 
 
-def set_temptype(control: int, value: TemperatureUnit) -> None:
+def set_temptype(control: int, value: TemperatureUnit) -> int:
   int_val = value.value
   return (control & ~(3 << 30)) | (((int_val << 1) | 1) << 30)

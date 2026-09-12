@@ -24,6 +24,18 @@
       },
       "f_humidity": {
         "name": "Umidità"
+      },
+      "last_message": {
+        "name": "Ultimo messaggio del dispositivo"
+      },
+      "last_registration": {
+        "name": "Ultima registrazione riuscita"
+      },
+      "failures": {
+        "name": "Errori di connessione consecutivi"
+      },
+      "queued_commands": {
+        "name": "Richieste in attesa"
       }
     },
     "binary_sensor": {
@@ -40,6 +52,27 @@
           "two": "Profilo 2",
           "three": "Profilo 3",
           "four": "Profilo 4"
+        }
+      }
+    },
+    "button": {
+      "refresh": {
+        "name": "Aggiorna stato"
+      },
+      "reconnect": {
+        "name": "Riconnetti"
+      }
+    },
+    "humidifier": {
+      "humidifier": {
+        "state_attributes": {
+          "mode": {
+            "state": {
+              "normal": "Normale",
+              "nightlight": "Luce notturna",
+              "sleep": "Riposo"
+            }
+          }
         }
       }
     }
@@ -190,6 +223,12 @@
     },
     "listener_bind_failed": {
       "message": "La porta {port} non è disponibile. Scegline un’altra nelle opzioni dell’integrazione."
+    }
+  },
+  "issues": {
+    "lan_key_changed": {
+      "title": "La chiave LAN di {device} è cambiata",
+      "description": "Il dispositivo richiede una chiave LAN diversa da quella salvata. Apri Impostazioni > Dispositivi e servizi, seleziona questa integrazione e scegli Riconfigura > Scopri o aggiorna i dispositivi da un account app. Accedi con l’app originale e mantieni selezionati i dispositivi desiderati. Per la configurazione manuale, rimuovi il dispositivo dalla configurazione e aggiungilo con la nuova chiave; se è l’unico dispositivo, ricrea la configurazione. La riconnessione da sola non può recuperare una nuova chiave. L’avviso scompare dopo uno scambio di chiavi riuscito."
     }
   }
 }

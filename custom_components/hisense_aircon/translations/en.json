@@ -161,6 +161,18 @@
       },
       "f_humidity": {
         "name": "Humidity"
+      },
+      "last_message": {
+        "name": "Last device message"
+      },
+      "last_registration": {
+        "name": "Last successful registration"
+      },
+      "failures": {
+        "name": "Consecutive connection failures"
+      },
+      "queued_commands": {
+        "name": "Pending requests"
       }
     },
     "binary_sensor": {
@@ -179,6 +191,27 @@
           "four": "Profile 4"
         }
       }
+    },
+    "button": {
+      "refresh": {
+        "name": "Refresh state"
+      },
+      "reconnect": {
+        "name": "Reconnect"
+      }
+    },
+    "humidifier": {
+      "humidifier": {
+        "state_attributes": {
+          "mode": {
+            "state": {
+              "normal": "Normal",
+              "nightlight": "Night light",
+              "sleep": "Sleep"
+            }
+          }
+        }
+      }
     }
   },
   "exceptions": {
@@ -190,6 +223,12 @@
     },
     "listener_bind_failed": {
       "message": "Port {port} is unavailable. Choose another in the integration options."
+    }
+  },
+  "issues": {
+    "lan_key_changed": {
+      "title": "The LAN key for {device} has changed",
+      "description": "The device requests a different LAN key from the one saved. Open Settings > Devices & services, select this integration and choose Reconfigure > Discover or refresh devices from an app account. Sign in using the original app account and keep the devices you want selected. For manual setup, remove the device from the configuration and add it with the new key; if it is the only device, recreate the configuration. Reconnecting alone cannot retrieve a new key. This issue clears after a successful key exchange."
     }
   }
 }

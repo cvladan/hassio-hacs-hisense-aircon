@@ -64,7 +64,7 @@ async def _sign_in(user: str, passwd: str, user_server: str, app_id: str, app_se
     return tokens['access_token']
 
 
-async def _get_devices(devices_server: str, access_token: str, headers: dict,
+async def _get_devices(devices_server: str, headers: dict,
                        session: aiohttp.ClientSession):
   _LOGGER.debug('Fetching account devices')
   async with session.get(f'https://{devices_server}/apiv1/devices.json',
@@ -93,25 +93,11 @@ async def _get_lanip(devices_server: str, dsn: str, headers: dict, session: aioh
     return json.loads(resp_data)['lanip']
 
 
-async def _get_device_properties(devices_server: str, dsn: str, headers: dict,
-                                 session: aiohttp.ClientSession):
-  _LOGGER.debug('Fetching device properties')
-  async with session.get(f'https://{devices_server}/apiv1/dsns/{dsn}/properties.json',
-                         headers=headers,
-                         timeout=_REQUEST_TIMEOUT) as resp:
-    if resp.status != HTTPStatus.OK.value:
-      raise Error(
-          f'Failed to get properties data from Hisense server: {resp.status} {resp.reason!r}')
-    resp_data = await resp.text()
-    return json.loads(resp_data)
-
-
 async def perform_discovery(session: aiohttp.ClientSession,
                             app: str,
                             user: str,
                             passwd: str,
-                            device_filter: str = None,
-                            properties_filter: bool = False) -> dict:
+                            device_filter: str | None = None) -> list[dict]:
   if app in SECRET_ID_MAP:
     app_prefix = SECRET_ID_MAP[app]
   else:
@@ -144,7 +130,7 @@ async def perform_discovery(session: aiohttp.ClientSession,
       'Host': devices_server,
       'Accept-Encoding': 'gzip'
   }
-  devices = await _get_devices(devices_server, access_token, headers, session)
+  devices = await _get_devices(devices_server, headers, session)
   _LOGGER.debug('Found %d devices', len(devices))
   for device in devices:
     device_data = device['device']
@@ -152,11 +138,6 @@ async def perform_discovery(session: aiohttp.ClientSession,
       continue
     dsn = device_data['dsn']
     lanip = await _get_lanip(devices_server, dsn, headers, session)
-    properties_text = ''
-    if properties_filter:
-      props = await _get_device_properties(devices_server, dsn, headers, session)
-      device_data['properties'] = props
-
     device_data['lanip_key'] = lanip['lanip_key']
     device_data['lanip_key_id'] = lanip['lanip_key_id']
     device_data['temp_type'] = 'C' if app in CELSIUS_BASED_APPS else 'F'

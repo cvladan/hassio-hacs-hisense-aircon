@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-import logging
+from functools import partial
 from typing import Any, Coroutine
 
 from aiohttp import web
@@ -15,6 +15,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.helpers import issue_registry as ir
 
 from .aircon import Device
 from .const import (
@@ -33,8 +34,6 @@ from .const import (
 )
 from .notifier import Notifier
 from .query_handlers import QueryHandlers
-
-_LOGGER = logging.getLogger(__name__)
 
 type HisenseConfigEntry = ConfigEntry[HisenseController]
 
@@ -64,17 +63,16 @@ class HisenseController:
     self.hass = hass
     self.entry = entry
     self.devices = [
-        Device.create(self._device_config(device_config), self._notify_device)
+        Device.create(self._device_config(device_config),
+                      partial(self._notify_device, device_config["mac_address"]))
         for device_config in entry.data[CONF_DEVICES]
     ]
-    self.devices_by_mac = {device.mac_address: device for device in self.devices}
     self.handlers = QueryHandlers(self.devices)
     self._tasks: list[asyncio.Task[Any]] = []
     self._http_runner: web.AppRunner | None = None
     self._notifier = Notifier(
         self._option(CONF_SEPARATE_HTTP_PORT, 0) or self._option(CONF_CALLBACK_PORT, DEFAULT_CALLBACK_PORT),
         self._option(CONF_LOCAL_IP),
-        loop=hass.loop,
     )
 
   def _option(self, key: str, default: Any | None = None) -> Any:
@@ -161,27 +159,29 @@ class HisenseController:
           translation_placeholders={"port": str(port)},
       ) from ex
 
-  def get_device(self, mac_address: str) -> Device | None:
-    """Return a device by MAC address."""
-    return self.devices_by_mac.get(mac_address)
+  def _notify_device(self, mac_address: str) -> None:
+    self._notifier.notify(mac_address)
 
-  def _notify_device(self) -> None:
-    self._notifier.notify()
+  def reconnect_device(self, device: Device) -> None:
+    """Request a fresh registration without resetting other devices or queued writes."""
+    self._notifier.notify(device.mac_address, reconnect=True)
 
   @callback
-  def _handle_property_update(
-      self,
-      mac_address: str,
-      prop_name: str,
-      value: Any,
-      retain: bool = False,
-  ) -> None:
+  def _handle_property_update(self, mac_address: str, changed: set[str]) -> None:
+    if 'lan_key_invalid' in changed:
+      device = next(d for d in self.devices if d.mac_address == mac_address)
+      issue_id = f"{self.entry.entry_id}_{mac_address}_lan_key"
+      if device.lan_key_invalid:
+        ir.async_create_issue(
+            self.hass, DOMAIN, issue_id, is_fixable=False, is_persistent=True,
+            severity=ir.IssueSeverity.ERROR, translation_key="lan_key_changed",
+            translation_placeholders={"device": device.name},
+            learn_more_url="https://github.com/cvladan/hassio-hacs-hisense-aircon#managing-devices-after-setup",
+        )
+      else:
+        ir.async_delete_issue(self.hass, DOMAIN, issue_id)
     async_dispatcher_send(
-        self.hass,
-        signal_device_update(self.entry.entry_id, mac_address),
-        prop_name,
-        value,
-    )
+        self.hass, signal_device_update(self.entry.entry_id, mac_address), changed)
 
   async def _query_status_device(self, device: Device) -> None:
     status_interval = self._option(CONF_STATUS_INTERVAL, DEFAULT_STATUS_INTERVAL)

@@ -20,7 +20,8 @@ These modules are installed in air conditioners and humidifiers manufactured or 
 - Adds devices through the normal Home Assistant config flow.
 - Discovers LAN keys from the supported Hisense/Ayla cloud account, or accepts manual LAN key entry.
 - Registers unauthenticated local LAN endpoints under `/local_lan/...` so the air conditioner can exchange encrypted local messages with Home Assistant.
-- Exposes the main device as a `climate` entity.
+- Exposes air conditioners as `climate` entities and supported humidifiers as `humidifier` entities.
+- Provides per-device Refresh state and Reconnect buttons and optional connection diagnostics.
 - Exposes additional writable properties as `switch`, `select`, and `number` entities.
 - Exposes read-only device properties as `sensor` and `binary_sensor` entities.
 - Does not require MQTT.
@@ -126,6 +127,42 @@ You can also add another integration entry for a different account or a manual d
 From version 1.5.0, a changed IP address is updated automatically when Home Assistant's DHCP discovery reports the configured device's MAC address. Only that device's saved address changes, and its configuration reloads to reconnect. Existing entities and LAN keys are preserved. This is enabled automatically when the Home Assistant `dhcp` integration is loaded, normally through `default_config`.
 
 Recovery depends on Home Assistant receiving the new address through DHCP, device trackers, or its periodic network discovery. It does not start a separate scan when a device disconnects. If discovery cannot see the device, for example across an isolated VLAN, use **Reconfigure > Change a device IP address** or a DHCP reservation on your router.
+
+## Refresh, Reconnect, and Connection Diagnostics
+
+Each device has two buttons under its diagnostic controls:
+
+- **Refresh state** queues a full property refresh immediately. Repeated presses do not duplicate reads that are already waiting.
+- **Reconnect** requests a new LAN registration for that device. It preserves queued commands and leaves other devices running. It does not reboot the appliance or retrieve a replacement LAN key.
+
+Both buttons remain usable while the device is unavailable. An unavailable device still needs to become reachable before queued work can complete. Registration attempts and keepalives run independently for each device.
+
+Four optional diagnostic sensors are disabled by default. Enable them from the device's entity list when needed:
+
+| Sensor | Meaning |
+| --- | --- |
+| Last device message | Time of the last device update that passed envelope, signature, and sequence checks. It does not imply that every reported property is supported. |
+| Last successful registration | Time when the device last accepted a local registration or keepalive request. This alone does not prove that callbacks reach Home Assistant. |
+| Consecutive connection failures | Registration failures since the last successful request. |
+| Pending requests | Total queued control commands and property reads. |
+
+These values also appear in the downloadable diagnostics, remain readable while a device is unavailable, and reset when the configuration reloads or Home Assistant restarts. Invalid signatures and stale updates do not advance the last device message time. The integration does not treat a queued or sent command as an acknowledgement from the appliance.
+
+If a device requests a different LAN key ID, Home Assistant shows a Repairs issue with instructions for refreshing its cloud configuration or replacing its manual setup. The issue clears after a successful key exchange. Ordinary connection failures do not create Repairs issues.
+
+## Humidifier Controls and Migration from 1.5
+
+Supported Ayla humidifiers now have a native `humidifier` entity with power, current and target humidity, and the modes `normal`, `nightlight`, and `sleep`. Target humidity uses the existing range of 30 through 99 percent in whole percent steps. Initial values stay unknown until reported or sent.
+
+The three standalone controls covered by this entity are removed on successful setup. Update dashboards, scripts, scenes, and automations that use them:
+
+| Previous control | Replacement |
+| --- | --- |
+| `switch` power property | `humidifier.turn_on` or `humidifier.turn_off` |
+| `humi` target humidity number | `humidifier.set_humidity` with `humidity` |
+| `workmode` select | `humidifier.set_mode` with `mode` |
+
+Other controls and sensors, including mist level, timer, water status, and measured humidity, remain available. Air conditioner entity IDs and actions are unchanged.
 
 ## Updating Automations That Use Separate Climate Controls
 
@@ -284,7 +321,7 @@ This project is not affiliated with Hisense, Ayla Networks, Fujitsu, or their su
 
 ## Technical Notes
 
-This integration uses Home Assistant's shared `aiohttp` client session and HTTP view stack. `aiohttp` is managed by Home Assistant itself and is not pinned in this integration's `manifest.json` requirements.
+This integration uses Home Assistant's shared `aiohttp` client session, HTTP view stack, and installed `cryptography` library. These dependencies are managed by Home Assistant. The only additional integration requirement is `getmac`, used when cloud discovery does not provide a MAC address.
 
 ## Diagnostics and Development
 
@@ -295,10 +332,12 @@ A reported electricity value is still a raw protocol value. No power or energy u
 Run the checks with Python 3.14:
 
 ```sh
-python -m pip install homeassistant==2026.9.1 dataclasses-json==0.6.7 getmac==0.9.5 pycryptodome==3.23.0
+python -m pip install homeassistant==2026.9.1 getmac==0.9.5
 python -m unittest discover -s tests -v
 ```
 
 CI runs these checks on Home Assistant 2026.3.0 and 2026.9.1, plus HACS validation and hassfest. To check the minimum version locally, use a separate environment with `homeassistant==2026.3.0`.
 
 The checks use Home Assistant classes and local HTTP and HTTPS test servers. They cover encrypted callbacks, multiple devices, mixed shared and separate listeners, source isolation, busy ports, and cleanup after failure or reload. The test with several loopback source addresses runs on Linux CI and is skipped on systems without those addresses. They do not contact the cloud or a physical air conditioner. Real device checks are still needed for Quiet behavior, recovery after connection loss, and cloud discovery across supported apps.
+
+For repeatable local timing and state write counts, run `PYTHONPATH=. python tests/benchmark_runtime.py` in the same environment. Compare measurements on the same machine and interpreter. This measures Python processing, not the response time of a physical appliance.

@@ -6,13 +6,17 @@ import asyncio
 
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import entity_registry as er, issue_registry as ir
+
+from .const import DOMAIN, CONF_DEVICES
 
 from .controller import HisenseConfigEntry, HisenseController
-from .entity import climate_managed_properties
+from .entity import primary_managed_properties
 
 PLATFORMS: list[Platform] = [
     Platform.CLIMATE,
+    Platform.HUMIDIFIER,
+    Platform.BUTTON,
     Platform.SWITCH,
     Platform.SELECT,
     Platform.NUMBER,
@@ -36,7 +40,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: HisenseConfigEntry) -> b
       del entry.runtime_data
     raise
   duplicates = {f"{device.mac_address}_{name}" for device in controller.devices
-                for name in climate_managed_properties(device)}
+                for name in primary_managed_properties(device)}
   registry = er.async_get(hass)
   for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
     if entity.domain in ("switch", "select", "number") and entity.unique_id in duplicates:
@@ -57,3 +61,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: HisenseConfigEntry) -> 
 async def _async_update_listener(hass: HomeAssistant, entry: HisenseConfigEntry) -> None:
   """Reload when options change."""
   await hass.config_entries.async_reload(entry.entry_id)
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: HisenseConfigEntry) -> None:
+  """Remove persistent LAN key issues when their configuration is deleted."""
+  for device in entry.data[CONF_DEVICES]:
+    ir.async_delete_issue(hass, DOMAIN, f"{entry.entry_id}_{device['mac_address']}_lan_key")

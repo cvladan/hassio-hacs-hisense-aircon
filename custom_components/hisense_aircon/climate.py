@@ -65,48 +65,33 @@ class HisenseClimate(HisenseEntity, ClimateEntity):
   """Hisense air conditioner climate entity."""
 
   _attr_name = None
-  _attr_should_poll = False
-  _attr_target_temperature_step = 1.0
+  _attr_hvac_modes = [HVACMode.OFF, HVACMode.FAN_ONLY, HVACMode.HEAT,
+                      HVACMode.COOL, HVACMode.DRY, HVACMode.AUTO]
 
   def __init__(self, controller: HisenseController, device: Device) -> None:
     super().__init__(controller, device)
     self._attr_unique_id = device.mac_address
-
-  @property
-  def supported_features(self) -> ClimateEntityFeature:
-    """Return supported features."""
-    features = ClimateEntityFeature.TURN_ON | ClimateEntityFeature.TURN_OFF
-    if "temp" in self.device.topics:
-      features |= ClimateEntityFeature.TARGET_TEMPERATURE
-    if "fan_speed" in self.device.topics:
-      features |= ClimateEntityFeature.FAN_MODE
-    if "swing_mode" in self.device.topics:
-      features |= ClimateEntityFeature.SWING_MODE
-    if "swing_horizontal_mode" in self.device.topics:
-      features |= ClimateEntityFeature.SWING_HORIZONTAL_MODE
-    return features
-
-  @property
-  def temperature_unit(self) -> str:
-    """Return the temperature unit."""
-    return UnitOfTemperature.FAHRENHEIT if self.device.is_fahrenheit else UnitOfTemperature.CELSIUS
-
-  @property
-  def min_temp(self) -> float:
-    """Return minimum target temperature."""
-    # Home Assistant converts its displayed 16 C lower bound back to 60.8 F.
-    # Command precision rounds that value to the supported 61 F setpoint.
-    return 60.8 if self.device.is_fahrenheit else 16
-
-  @property
-  def max_temp(self) -> float:
-    """Return maximum target temperature."""
-    return 86 if self.device.is_fahrenheit else 30
-
-  @property
-  def target_temperature_step(self) -> float:
-    """Return target temperature step."""
-    return self.device.get_temp_precision()
+    self._attr_supported_features = ClimateEntityFeature.TURN_ON | ClimateEntityFeature.TURN_OFF
+    for topic, feature in (
+        ("temp", ClimateEntityFeature.TARGET_TEMPERATURE),
+        ("fan_speed", ClimateEntityFeature.FAN_MODE),
+        ("swing_mode", ClimateEntityFeature.SWING_MODE),
+        ("swing_horizontal_mode", ClimateEntityFeature.SWING_HORIZONTAL_MODE),
+    ):
+      if topic in device.topics:
+        self._attr_supported_features |= feature
+    self._attr_temperature_unit = UnitOfTemperature.FAHRENHEIT if device.is_fahrenheit else UnitOfTemperature.CELSIUS
+    # HA converts its displayed 16 C lower bound to 60.8 F, which rounds to 61 F.
+    self._attr_min_temp = 60.8 if device.is_fahrenheit else 16
+    self._attr_max_temp = 86 if device.is_fahrenheit else 30
+    self._attr_target_temperature_step = device.get_temp_precision()
+    self._attr_fan_modes = device.fan_modes or None
+    self._attr_swing_modes = [SWING_OFF, SWING_ON] if "swing_mode" in device.topics else None
+    self._attr_swing_horizontal_modes = [SWING_OFF, SWING_ON] if "swing_horizontal_mode" in device.topics else None
+    self._update_properties.update(device.topics[key] for key in (
+        "power", "work_mode", "temp", "fan_speed", "swing_mode",
+        "swing_horizontal_mode", "env_temp", "display_temperature") if key in device.topics)
+    self._update_properties.add("f_humidity")
 
   @property
   def current_temperature(self) -> float | None:
@@ -125,18 +110,6 @@ class HisenseClimate(HisenseEntity, ClimateEntity):
     return self.device.get_known_property(self.device.topics["temp"])
 
   @property
-  def hvac_modes(self) -> list[HVACMode]:
-    """Return available HVAC modes."""
-    return [
-        HVACMode.OFF,
-        HVACMode.FAN_ONLY,
-        HVACMode.HEAT,
-        HVACMode.COOL,
-        HVACMode.DRY,
-        HVACMode.AUTO,
-    ]
-
-  @property
   def hvac_mode(self) -> HVACMode | None:
     """Return current HVAC mode."""
     if power_prop := self.device.topics.get("power"):
@@ -153,11 +126,6 @@ class HisenseClimate(HisenseEntity, ClimateEntity):
     return None
 
   @property
-  def fan_modes(self) -> list[str] | None:
-    """Return supported fan modes."""
-    return self.device.fan_modes or None
-
-  @property
   def fan_mode(self) -> str | None:
     """Return current fan mode."""
     prop = self.device.topics.get("fan_speed")
@@ -165,21 +133,11 @@ class HisenseClimate(HisenseEntity, ClimateEntity):
     return value.name.lower() if value is not None else None
 
   @property
-  def swing_modes(self) -> list[str] | None:
-    """Return supported vertical swing modes."""
-    return [SWING_OFF, SWING_ON] if "swing_mode" in self.device.topics else None
-
-  @property
   def swing_mode(self) -> str | None:
     """Return vertical swing without inferring the other axis."""
     prop = self.device.topics.get("swing_mode")
     value = self.device.get_known_property(prop) if prop else None
     return value.name.lower() if value is not None else None
-
-  @property
-  def swing_horizontal_modes(self) -> list[str] | None:
-    """Return supported horizontal swing modes."""
-    return [SWING_OFF, SWING_ON] if "swing_horizontal_mode" in self.device.topics else None
 
   @property
   def swing_horizontal_mode(self) -> str | None:
@@ -194,7 +152,6 @@ class HisenseClimate(HisenseEntity, ClimateEntity):
       self.device.queue_command(self.device.topics["temp"], temperature)
     if (hvac_mode := kwargs.get("hvac_mode")) is not None:
       await self.async_set_hvac_mode(hvac_mode)
-    self.async_write_ha_state()
 
   async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
     """Set HVAC mode."""
@@ -202,13 +159,11 @@ class HisenseClimate(HisenseEntity, ClimateEntity):
       self.device.queue_command(self.device.topics["work_mode"], "OFF")
     else:
       self.device.queue_command(self.device.topics["work_mode"], HVAC_TO_DEVICE[hvac_mode])
-    self.async_write_ha_state()
 
   async def async_turn_on(self) -> None:
     """Turn the device on."""
     prop = self.device.topics.get("power") or self.device.topics["work_mode"]
     self.device.queue_command(prop, "ON")
-    self.async_write_ha_state()
 
   async def async_turn_off(self) -> None:
     """Turn the device off."""
@@ -217,14 +172,11 @@ class HisenseClimate(HisenseEntity, ClimateEntity):
   async def async_set_fan_mode(self, fan_mode: str) -> None:
     """Set fan mode."""
     self.device.queue_command(self.device.topics["fan_speed"], fan_mode.upper())
-    self.async_write_ha_state()
 
   async def async_set_swing_mode(self, swing_mode: str) -> None:
     """Set vertical swing without changing horizontal swing."""
     self.device.queue_command(self.device.topics["swing_mode"], swing_mode.upper())
-    self.async_write_ha_state()
 
   async def async_set_swing_horizontal_mode(self, swing_horizontal_mode: str) -> None:
     """Set horizontal swing without changing vertical swing."""
     self.device.queue_command(self.device.topics["swing_horizontal_mode"], swing_horizontal_mode.upper())
-    self.async_write_ha_state()

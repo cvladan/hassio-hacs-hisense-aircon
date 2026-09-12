@@ -28,7 +28,6 @@ async def async_setup_entry(
 class HisensePropertyBinarySensor(HisensePropertyEntity, BinarySensorEntity):
   """A read-only boolean property."""
 
-  _attr_should_poll = False
 
   def __init__(self, controller, device, field) -> None:
     super().__init__(controller, device, field)

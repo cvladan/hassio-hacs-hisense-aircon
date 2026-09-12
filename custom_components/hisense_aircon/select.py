@@ -36,12 +36,10 @@ async def async_setup_entry(
 class HisensePropertySelect(HisensePropertyEntity, SelectEntity):
   """A writable enum property."""
 
-  _attr_should_poll = False
 
-  @property
-  def options(self) -> list[str]:
-    """Return available options."""
-    return enum_options(self.field.type)
+  def __init__(self, controller, device, field):
+    super().__init__(controller, device, field)
+    self._attr_options = enum_options(field.type)
 
   @property
   def current_option(self) -> str | None:
@@ -51,4 +49,3 @@ class HisensePropertySelect(HisensePropertyEntity, SelectEntity):
   async def async_select_option(self, option: str) -> None:
     """Select an option."""
     self.device.queue_command(self.prop_name, option.upper())
-    self.async_write_ha_state()

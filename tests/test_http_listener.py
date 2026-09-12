@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from aiohttp import ClientSession, TCPConnector, web
 from aiohttp.test_utils import TestServer
-from Crypto.Cipher import AES
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady
 
 from custom_components.hisense_aircon.config import Encryption
@@ -93,17 +93,17 @@ class HTTPListenerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status, 200)
         command = await response.json()
         enc = unit.get_app_encryption()
-        plain = AES.new(enc.crypto_key, AES.MODE_CBC, enc.iv_seed).decrypt(base64.b64decode(command['enc']))
+        plain = Cipher(algorithms.AES(enc.crypto_key), modes.CBC(enc.iv_seed)).decryptor().update(base64.b64decode(command['enc']))
         self.assertIn('cmds', json.loads(plain.rstrip(b'\0'))['data'])
         self.assertEqual(unit.commands_queue.qsize(), queued - 1)
         enc = unit.get_dev_encryption()
-        sender = AES.new(enc.crypto_key, AES.MODE_CBC, enc.iv_seed)
+        sender = Cipher(algorithms.AES(enc.crypto_key), modes.CBC(enc.iv_seed)).encryptor()
         paths = ('property/datapoint.json', 'property/datapoint/ack.json',
                  'node/property/datapoint.json', 'node/property/datapoint/ack.json')
         for seq, path in enumerate(paths, 1):
           text = json.dumps({'seq_no': seq, 'data': {'name': 'display_temperature', 'value': 200 + seq}}).encode()
           envelope = {
-              'enc': base64.b64encode(sender.encrypt(controller.handlers.pad(text))).decode(),
+              'enc': base64.b64encode(sender.update(controller.handlers.pad(text))).decode(),
               'sign': base64.b64encode(Encryption.hmac_digest(enc.sign_key, text)).decode()}
           response = await client.post(url + '/' + path, json=envelope)
           self.assertEqual(response.status, 200)

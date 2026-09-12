@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import AsyncMock, Mock, patch
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
-from Crypto.Cipher import AES
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 from custom_components.hisense_aircon.aircon import Device
 from custom_components.hisense_aircon.config import Encryption
@@ -44,14 +44,14 @@ class SecurityTests(unittest.IsolatedAsyncioTestCase):
       self.assertEqual(response.status, 400)
     text = json.dumps({'seq_no': 1, 'data': {'name': 'f_voltage', 'value': 230}}).encode()
     enc = self.unit.get_dev_encryption()
-    sender = AES.new(enc.crypto_key, AES.MODE_CBC, enc.iv_seed)
-    envelope = {'enc': base64.b64encode(sender.encrypt(self.handlers.pad(text))).decode(),
+    sender = Cipher(algorithms.AES(enc.crypto_key), modes.CBC(enc.iv_seed)).encryptor()
+    envelope = {'enc': base64.b64encode(sender.update(self.handlers.pad(text))).decode(),
                 'sign': base64.b64encode(Encryption.hmac_digest(enc.sign_key, text)).decode()}
     response = await self.client.post('/update', json=envelope)
     self.assertEqual(response.status, 200)
     self.assertEqual(self.unit.get_reported_property('f_voltage'), 230)
     text = b'{"secret":"must-not-appear-in-logs"}'
-    envelope = {'enc': base64.b64encode(sender.encrypt(self.handlers.pad(text))).decode(),
+    envelope = {'enc': base64.b64encode(sender.update(self.handlers.pad(text))).decode(),
                 'sign': base64.b64encode(b'0' * 32).decode()}
     with self.assertLogs('custom_components.hisense_aircon.query_handlers', level='WARNING') as logs:
       response = await self.client.post('/update', json=envelope)
@@ -87,10 +87,9 @@ class SecurityTests(unittest.IsolatedAsyncioTestCase):
     session = Mock(request=request, get=request)
     self.assertEqual(await discovery._sign_in('u', 'p', 'example.invalid', 'app', 'secret', session), 'token')
     response.text.return_value = '[]'
-    self.assertEqual(await discovery._get_devices('example.invalid', 'token', {}, session), [])
+    self.assertEqual(await discovery._get_devices('example.invalid', {}, session), [])
     response.text.return_value = '{"lanip":{}}'
     await discovery._get_lanip('example.invalid', 'dsn', {}, session)
-    await discovery._get_device_properties('example.invalid', 'dsn', {}, session)
     for call in request.call_args_list:
       self.assertNotIn('ssl', call.kwargs)
       self.assertEqual(call.kwargs['timeout'].total, 15)

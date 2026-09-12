@@ -1,6 +1,5 @@
 """Initial state and model compatibility checks."""
 
-from dataclasses import fields
 from types import SimpleNamespace
 import unittest
 from custom_components.hisense_aircon.aircon import Device
@@ -15,7 +14,7 @@ class EntityTests(unittest.TestCase):
     for model in ('AEH-W4E1', 'AP-WA1E', 'AP-WB1E', '0001-0401-0001'):
       unit = Device.create({**device(), 'model': model}, lambda: None)
       controller = SimpleNamespace(entry=SimpleNamespace(entry_id='test'))
-      for field in fields(unit.get_all_properties()):
+      for field in unit.get_property_fields():
         entity = HisensePropertyEntity(controller, unit, field)
         self.assertIsNone(entity.native_value, (model, field.name))
       if model == 'AEH-W4E1':
@@ -44,17 +43,17 @@ class EntityTests(unittest.TestCase):
       self.assertEqual(climate.target_temperature, 22.5)
 
   def test_only_actual_climate_duplicates_are_removed(self):
-    from custom_components.hisense_aircon.entity import climate_managed_properties, property_fields
+    from custom_components.hisense_aircon.entity import primary_managed_properties, property_fields
     unit = Device.create(device(), lambda: None)
-    removed = climate_managed_properties(unit)
+    removed = primary_managed_properties(unit)
     self.assertEqual(removed, {'t_power', 't_work_mode', 't_temp', 't_fan_speed',
                                't_fan_power', 't_fan_leftright'})
     remaining = {field.name for field in property_fields(unit)}
     self.assertTrue({'t_temptype', 't_sleep', 't_swing_angle', 't_run_mode'} <= remaining)
     fgl = Device.create({**device(), 'model': 'AP-WA1E'}, lambda: None)
-    self.assertNotIn('af_horizontal_swing', climate_managed_properties(fgl))
+    self.assertNotIn('af_horizontal_swing', primary_managed_properties(fgl))
     humidifier = Device.create({**device(), 'model': '0001-0401-0001'}, lambda: None)
-    self.assertEqual(climate_managed_properties(humidifier), set())
+    self.assertEqual(primary_managed_properties(humidifier), {'switch', 'humi', 'workmode'})
 
   def test_unchanged_reports_notify_once_but_first_actual_report_is_kept(self):
     from unittest.mock import Mock

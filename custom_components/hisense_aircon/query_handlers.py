@@ -2,12 +2,10 @@ from aiohttp import web
 import base64
 import binascii
 import hmac
-from Crypto.Cipher import AES
 from http import HTTPStatus
 import json
-import math
 import logging
-import queue
+import asyncio
 
 from .config import Encryption
 from .aircon import Device
@@ -26,8 +24,8 @@ class QueryHandlers:
       self._devices_map[device.ip_address] = device
 
   @property
-  def device_ips(self) -> set[str]:
-    return set(self._devices_map)
+  def device_ips(self):
+    return self._devices_map.keys()
 
   def _device_for_remote(self, request: web.Request) -> Device:
     device = self._devices_map.get(request.remote)
@@ -69,10 +67,11 @@ class QueryHandlers:
     try:
       command_entry = device.commands_queue.get_nowait()
       command['data'], property_updater = command_entry.command, command_entry.updater
-    except queue.Empty:
+    except asyncio.QueueEmpty:
       command['data'], property_updater = {}, None
     if property_updater:
-      property_updater()  #TODO: should be async as well?
+      property_updater()
+      device._notify_listeners({"queued_commands"})
     return web.json_response(self._encrypt_and_sign(device, command))
 
   async def property_update_handler(self, request: web.Request) -> web.Response:
@@ -93,6 +92,7 @@ class QueryHandlers:
       raise web.HTTPBadRequest(reason='Invalid device update payload.')
     if not device.is_update_valid(update['seq_no']):
       return response
+    device.record_message()
     try:
       if not update['data']:
         _LOGGER.info('Unsupported update message = {}'.format(update['seq_no']))
@@ -108,35 +108,7 @@ class QueryHandlers:
       device.update_property(name, value)
     except Exception as ex:
       _LOGGER.warning('Invalid device property update (%s)', type(ex).__name__)
-      #TODO: Should return internal error?
     return response
-
-  async def get_status_handler(self, request: web.Request) -> web.Response:
-    """Handles get status request (by a smart home hub).
-    Returns the current internally stored state of the AC.
-    """
-    devices = []
-    for device in self._devices_map.values():
-      if 'device_ip' in request.query.keys() and device.ip_address != request.query['device_ip']:
-        continue
-      devices.append({'ip': device.ip_address, 'props': device.get_all_properties().to_dict()})
-    return web.json_response({'devices': devices})
-
-  async def queue_command_handler(self, request: web.Request) -> web.Response:
-    """Handles queue command request (by a smart home hub).
-    """
-    device = self._devices_map.get(request.query.get('device_ip'))
-    if not device:
-      if len(self._devices_map) == 1:
-        device = list(self._devices_map.values())[0]
-      else:
-        raise web.HTTPBadRequest(reason=f'Device "{request.query.get("device_ip")}" not found.')
-    try:
-      device.queue_command(request.query['property'], request.query['value'])
-    except Exception as ex:
-      _LOGGER.exception('Failed to queue command.')
-      raise web.HTTPBadRequest(f'Failed to queue command:\n{ex!r}')
-    return web.json_response({'queued_commands': device.commands_queue.qsize()})
 
   def _encrypt_and_sign(self, device: Device, data: dict) -> dict:
     text = json.dumps(data)
@@ -144,7 +116,7 @@ class QueryHandlers:
     text = text.encode('utf-8')
     encryption = device.get_app_encryption()
     return {
-        "enc": base64.b64encode(encryption.cipher.encrypt(self.pad(text))).decode('utf-8'),
+        "enc": base64.b64encode(encryption.encryptor.update(self.pad(text))).decode('utf-8'),
         "sign": base64.b64encode(Encryption.hmac_digest(encryption.sign_key, text)).decode('utf-8')
     }
 
@@ -163,11 +135,11 @@ class QueryHandlers:
     try:
       encrypted = base64.b64decode(data['enc'], validate=True)
       signature = base64.b64decode(data['sign'], validate=True)
-      if not encrypted or len(encrypted) % AES.block_size or len(signature) != 32:
+      if not encrypted or len(encrypted) % 16 or len(signature) != 32:
         raise ValueError('Invalid encrypted envelope')
     except (KeyError, TypeError, ValueError, binascii.Error):
       raise Error('Invalid encrypted device payload.') from None
-    text = self.unpad(encryption.cipher.decrypt(encrypted))
+    text = self.unpad(encryption.decryptor.update(encrypted))
     if not hmac.compare_digest(Encryption.hmac_digest(encryption.sign_key, text), signature):
       raise Error('Invalid device message signature.')
     try:
@@ -178,10 +150,9 @@ class QueryHandlers:
   @staticmethod
   def pad(data: bytes):
     """Zero padding for AES data encryption (non standard)."""
-    new_size = math.ceil(len(data) / AES.block_size) * AES.block_size
-    return data.ljust(new_size, bytes([0]))
+    return data.ljust((len(data) + 15) // 16 * 16, b'\0')
 
   @staticmethod
   def unpad(data: bytes):
     """Remove Zero padding for AES data encryption (non standard)."""
-    return data.rstrip(bytes([0]))
+    return data.rstrip(b'\0')

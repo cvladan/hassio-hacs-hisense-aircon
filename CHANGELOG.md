@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.6.0
+
+- Run device registration and keepalive loops independently so an unreachable device does not delay commands to other devices. Honor retry delays and preserve pending commands during reconnection.
+- Apply packed control updates before publishing one change notification. Avoid unrelated climate state writes, repeated state copies, and premature writes when commands are only queued.
+- Add Refresh state and Reconnect buttons for each device, including unavailable devices.
+- Add optional diagnostic sensors for the last valid device message, last successful registration, consecutive connection failures, and pending requests. Include these values in the redacted diagnostic export.
+- Show a Home Assistant Repairs issue when a device requests a different LAN key, and clear it after a successful key exchange or removal of the device.
+- Add native humidifier entities for supported Ayla humidifiers, replacing the separate power, humidity target, and work mode controls.
+- Replace pycryptodome with Home Assistant's existing cryptography dependency. Preserve the Ayla key derivation, signatures, zero padding, and continuous CBC sessions.
+- Remove dataclasses-json, unused service endpoints, duplicate command helpers, unused discovery code, and threading synchronization. Preserve command priority and FIFO with an asyncio queue and an insertion counter.
+
+Migration: Update and restart Home Assistant. Climate entity IDs and settings are unchanged. For humidifiers, replace the old power switch with humidifier.turn_on or humidifier.turn_off, the humidity number with humidifier.set_humidity, and the work mode select with humidifier.set_mode. Modes remain normal, nightlight, and sleep. Only these three duplicated humidifier controls are removed. Diagnostics sensors are disabled by default and reset when the configuration reloads. Refresh state requests device values; Reconnect registers the LAN session again without rebooting the appliance or discarding queued commands.
+
 ## 1.5.0
 
 - Recover changed device IP addresses through Home Assistant DHCP discovery by matching registered MAC addresses. Preserve other devices, LAN keys, entities, and configuration options.

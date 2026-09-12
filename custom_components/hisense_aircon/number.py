@@ -33,7 +33,6 @@ async def async_setup_entry(
 class HisensePropertyNumber(HisensePropertyEntity, NumberEntity):
   """A writable numeric property."""
 
-  _attr_should_poll = False
   _attr_native_step = 1
 
   def __init__(self, controller, device, field) -> None:
@@ -52,4 +51,3 @@ class HisensePropertyNumber(HisensePropertyEntity, NumberEntity):
     """Set numeric value."""
     data_value = int(value) if self.field.type is int else value
     self.device.queue_command(self.prop_name, data_value)
-    self.async_write_ha_state()

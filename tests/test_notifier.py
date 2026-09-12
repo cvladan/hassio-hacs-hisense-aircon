@@ -78,3 +78,97 @@ class NotifierTests(unittest.IsolatedAsyncioTestCase):
     self.assertEqual(session.request.call_args.args[0], 'PUT')
     self.assertEqual(unit.commands_queue.qsize(), 0)
     self.assertIsNone(unit.get_reported_property('t_temp'))
+
+  async def test_slow_device_does_not_delay_healthy_device_and_cancellation_cleans_up(self):
+    notifier = Notifier(8123, '192.0.2.100')
+    for i in (1, 2):
+      notifier.register_device(Device.create(device(mac=f'00000000000{i}', ip=f'192.0.2.{i}'), lambda: None))
+    slow_started, slow_cancelled, healthy_repeated = [asyncio.Event() for _ in range(3)]
+    calls = []
+
+    class Request:
+      def __init__(self, url):
+        self.url = url
+
+      async def __aenter__(self):
+        if '192.0.2.2/' in self.url:
+          slow_started.set()
+          try:
+            await asyncio.Event().wait()
+          finally:
+            slow_cancelled.set()
+        calls.append(self.url)
+        if len(calls) >= 2:
+          healthy_repeated.set()
+        return Mock(status=202)
+
+      async def __aexit__(self, *args):
+        pass
+
+    session = Mock(request=lambda method, url, **kwargs: Request(url))
+    task = asyncio.create_task(notifier.start(session))
+    try:
+      await asyncio.wait_for(slow_started.wait(), 1)
+      await asyncio.wait_for(healthy_repeated.wait(), 1)
+      self.assertFalse(slow_cancelled.is_set())
+    finally:
+      await notifier.stop()
+      task.cancel()
+      await asyncio.gather(task, return_exceptions=True)
+    self.assertTrue(slow_cancelled.is_set())
+
+  async def test_retry_deadlines_and_targeted_reconnect_preserve_queued_commands(self):
+    notifier = Notifier(8123, '192.0.2.100')
+    units = [Device.create(device(mac=f'00000000000{i}', ip=f'192.0.2.{i}'), lambda: None) for i in (1, 2)]
+    for unit in units:
+      notifier.register_device(unit)
+    config = notifier._configurations[0]
+    response = Mock(status=500)
+    session = Mock(request=Mock(return_value=AsyncMock(__aenter__=AsyncMock(return_value=response))))
+    now = 100
+    for delay in (2, 4, 8, 10, 10):
+      with patch('custom_components.hisense_aircon.notifier.time.monotonic', return_value=now):
+        await notifier._perform_request(session, config)
+      self.assertEqual(config.next_attempt, now + delay)
+      count = session.request.call_count
+      with patch('custom_components.hisense_aircon.notifier.time.monotonic', return_value=now + delay - 0.1):
+        await notifier._perform_request(session, config)
+      self.assertEqual(session.request.call_count, count)
+      now += delay
+    units[0].queue_command('t_temp', 23)
+    notifier.notify(units[0].mac_address, reconnect=True)
+    self.assertTrue(config.notification.is_set())
+    self.assertFalse(notifier._configurations[1].notification.is_set())
+    response.status = 202
+    with patch('custom_components.hisense_aircon.notifier.time.monotonic', return_value=now):
+      await notifier._perform_request(session, config)
+    self.assertEqual(session.request.call_args.args[0], 'POST')
+    self.assertEqual(config.failures, 0)
+    self.assertIsNotNone(units[0].diagnostics['last_registration'])
+    self.assertEqual(units[0].commands_queue.get_nowait().command['properties'][0]['property']['value'], 23)
+    self.assertTrue(units[1].commands_queue.empty())
+
+  async def test_reconnect_requested_during_an_inflight_request_is_not_lost(self):
+    notifier = Notifier(8123, '192.0.2.100')
+    unit = Device.create(device(), lambda: None)
+    unit.available = True
+    notifier.register_device(unit)
+    config = notifier._configurations[0]
+    started, finish = asyncio.Event(), asyncio.Event()
+
+    async def enter():
+      started.set()
+      await finish.wait()
+      return Mock(status=202)
+
+    session = Mock(request=Mock(return_value=AsyncMock(__aenter__=AsyncMock(side_effect=enter))))
+    task = asyncio.create_task(notifier._perform_request(session, config))
+    await asyncio.wait_for(started.wait(), 1)
+    notifier.notify(unit.mac_address, reconnect=True)
+    finish.set()
+    await task
+    self.assertTrue(config.reconnect)
+    with patch('custom_components.hisense_aircon.notifier.time.monotonic', return_value=config.last_timestamp + 1):
+      await notifier._perform_request(session, config)
+    self.assertEqual(session.request.call_args.args[0], 'POST')
+    self.assertFalse(config.reconnect)

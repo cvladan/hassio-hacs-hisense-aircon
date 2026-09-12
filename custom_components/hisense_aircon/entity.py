@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import Field, fields
+from dataclasses import Field
 import enum
 from typing import Any
 
@@ -73,10 +73,12 @@ class HisenseEntity(Entity):
   """Base entity for a Hisense device property."""
 
   _attr_has_entity_name = True
+  _attr_should_poll = False
 
   def __init__(self, controller: HisenseController, device: Device) -> None:
     self.controller = controller
     self.device = device
+    self._update_properties = {"available"}
     self._attr_device_info = DeviceInfo(
         identifiers={(DOMAIN, device.mac_address)},
         connections={(CONNECTION_NETWORK_MAC, device.mac_address)},
@@ -103,8 +105,9 @@ class HisenseEntity(Entity):
         ))
 
   @callback
-  def _handle_device_update(self, prop_name: str, value: Any) -> None:
-    self.async_write_ha_state()
+  def _handle_device_update(self, changed: set[str]) -> None:
+    if changed & self._update_properties:
+      self.async_write_ha_state()
 
 
 class HisensePropertyEntity(HisenseEntity):
@@ -114,34 +117,27 @@ class HisensePropertyEntity(HisenseEntity):
     super().__init__(controller, device)
     self.field = field
     self.prop_name = field.name
+    self._update_properties.add(field.name)
     if field.name in {"t_eco", "t_fan_mute", "t_temp_heatcold", "t_backlight",
                       "t_display_power", "f_temp_in", "f_humidity", "f_filterclean", "t_sleep"}:
       self._attr_translation_key = "sleep_mode" if field.name == "t_sleep" else field.name
     else:
       self._attr_name = property_friendly_name(field.name)
     self._attr_unique_id = f"{device.mac_address}_{field.name}"
+    self._attr_extra_state_attributes = {"hisense_property": self.prop_name}
+    if description := property_description(self.prop_name):
+      self._attr_extra_state_attributes["description"] = description
 
   @property
   def native_value(self) -> Any:
     """Return the current property value."""
     return property_to_native_value(self.device.get_known_property(self.prop_name))
 
-  @property
-  def extra_state_attributes(self) -> dict[str, Any]:
-    """Return extra details for explaining protocol-derived entities."""
-    attrs: dict[str, Any] = {"hisense_property": self.prop_name}
-    if description := property_description(self.prop_name):
-      attrs["description"] = description
-    return attrs
 
-  @callback
-  def _handle_device_update(self, prop_name: str, value: Any) -> None:
-    if prop_name in (self.prop_name, "available"):
-      self.async_write_ha_state()
-
-
-def climate_managed_properties(device: Device) -> set[str]:
-  """Return only controls actually provided by this device's climate entity."""
+def primary_managed_properties(device: Device) -> set[str]:
+  """Return controls supplied by the device's climate or humidifier entity."""
+  if "humidity" in device.topics:
+    return {"switch", "humi", "workmode"}
   if not {"work_mode", "temp"} <= device.topics.keys():
     return set()
   names = {device.topics[key] for key in ("power", "work_mode", "temp", "fan_speed",
@@ -152,8 +148,8 @@ def climate_managed_properties(device: Device) -> set[str]:
 
 def property_fields(device: Device) -> list[Field[Any]]:
   """Return dataclass fields for a device."""
-  return [field for field in fields(device.get_all_properties())
-          if field.name not in climate_managed_properties(device)]
+  excluded = primary_managed_properties(device)
+  return [field for field in device.get_property_fields() if field.name not in excluded]
 
 
 def property_to_native_value(value: Any) -> Any:

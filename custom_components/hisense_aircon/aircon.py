@@ -1,4 +1,3 @@
-from copy import deepcopy
 from dataclasses import dataclass, field, fields
 from functools import partial
 import enum
@@ -6,37 +5,49 @@ import logging
 import random
 import re
 import string
-import threading
-import time
-from typing import Any, Callable, Dict
-import queue
+from typing import Callable, Dict
+import asyncio
+from datetime import datetime, timezone
+from itertools import count
 
 from . import control_value
 from .config import Config, Encryption
-from .error import Error
-from .properties import (AcProperties, AirFlow, AirFlowState, Economy, FanSpeed, FastColdHeat,
-                         FglProperties, FglBProperties, HumidifierProperties, Properties, Power,
-                         AcWorkMode, Quiet, TemperatureUnit, SleepMode, VertiSweep)
+from .error import Error, KeyIdReplaced
+from .properties import (AcProperties, FglProperties, FglBProperties,
+                         HumidifierProperties, Properties, Power, TemperatureUnit)
 
 _LOGGER = logging.getLogger(__name__)
+
+_CONTROL_FIELDS = {
+    't_power': (control_value.set_power, control_value.get_power),
+    't_fan_speed': (control_value.set_fan_speed, control_value.get_fan_speed),
+    't_work_mode': (control_value.set_work_mode, control_value.get_work_mode),
+    't_temp_heatcold': (control_value.set_heat_cold, control_value.get_heat_cold),
+    't_eco': (control_value.set_eco, control_value.get_eco),
+    't_temp': (control_value.set_temp, control_value.get_temp),
+    't_fan_power': (control_value.set_fan_power, control_value.get_fan_power),
+    't_fan_leftright': (control_value.set_fan_lr, control_value.get_fan_lr),
+    't_fan_mute': (control_value.set_fan_mute, control_value.get_fan_mute),
+    't_temptype': (control_value.set_temptype, control_value.get_temptype),
+}
 
 
 @dataclass(order=True)
 class Command:
   priority: int
-  timestamp: int  # Aligns equal priority commands in FIFO.
+  order: int  # Preserve FIFO independently of wall clock changes.
   command: Dict = field(compare=False)
   updater: Callable = field(compare=False)
 
 
-class Device(object):
+class Device:
+  """Device state and commands, owned by the Home Assistant event loop."""
 
   _FGL_DEVICES = re.compile(r'AP-W[ACDF]\dE')
   _FGLB_DEVICES = re.compile(r'AP-WB\dE')
   _HUMI_DEVICES = re.compile(r'0001-0401-000[12]')
 
-  def __init__(self, config: Dict[str, str], properties: Properties, notifier: Callable[[None],
-                                                                                        None]):
+  def __init__(self, config: Dict[str, str], properties: Properties, notifier: Callable[[], None]):
     self.name = config['name']
     self.app = config['app']
     self.model = config['model']
@@ -51,28 +62,26 @@ class Device(object):
     self._known_properties = set()
     self._pending_control = None
     self._pending_control_count = 0
-    self._properties_lock = threading.RLock()
     self._queue_listener = notifier
     self._available = None
     self.topics = {}
-    self.work_modes = []
     self.fan_modes = []
-    self.verti_sweeps = []
 
     self._next_command_id = 0
     self._pending_status = set()
 
-    self.commands_queue = queue.PriorityQueue()
+    self.commands_queue = asyncio.PriorityQueue()
+    self._command_order = count()
+    self.diagnostics = {"last_message": None, "last_registration": None, "failures": 0}
+    self.lan_key_invalid = False
     self._commands_seq_no = 0
-    self._commands_seq_no_lock = threading.Lock()
 
     self._updates_seq_no = 0
-    self._updates_seq_no_lock = threading.Lock()
 
-    self._property_change_listeners = []  # type List[Callable[[str, Any], None]]
+    self._property_change_listeners: list[Callable[[str, set[str]], None]] = []
 
   @classmethod
-  def create(cls, config: Dict[str, str], notifier: Callable[[None], None]):
+  def create(cls, config: Dict[str, str], notifier: Callable[[], None]):
     model = config['model']
     if cls._FGL_DEVICES.fullmatch(model):
       return FglDevice(config, notifier)
@@ -95,27 +104,34 @@ class Device(object):
   def available(self, value: bool):
     if self._available != value:
       self._available = value
-      self._notify_listeners('available', 'online' if value else 'offline', retain=True)
+      self._notify_listeners({'available'})
 
-  def add_property_change_listener(self, listener: Callable[[str, Any], None]):
+  def add_property_change_listener(self, listener: Callable[[str, set[str]], None]):
     self._property_change_listeners.append(listener)
 
-  def remove_property_change_listener(self, listener: Callable[[str, Any], None]):
+  def remove_property_change_listener(self, listener: Callable[[str, set[str]], None]):
     if listener in self._property_change_listeners:
       self._property_change_listeners.remove(listener)
 
-  def _notify_listeners(self, prop_name: str, value, retain: bool = False):
-    for listener in self._property_change_listeners:
-      listener(self.mac_address, prop_name, value, retain)
+  def _notify_listeners(self, changed: set[str]):
+    if changed:
+      for listener in tuple(self._property_change_listeners):
+        listener(self.mac_address, changed)
 
-  def get_all_properties(self) -> Properties:
-    with self._properties_lock:
-      return deepcopy(self._properties)
+  def update_diagnostics(self, **values):
+    changed = {name for name, value in values.items() if self.diagnostics[name] != value}
+    self.diagnostics.update(values)
+    self._notify_listeners(changed)
+
+  def record_message(self):
+    self.update_diagnostics(last_message=datetime.now(timezone.utc))
+
+  def get_property_fields(self):
+    return fields(self._properties)
 
   def get_property(self, name: str):
-    """Get a stored property (or None if doesn't exist)."""
-    with self._properties_lock:
-      return getattr(self._properties, name, None)
+    """Get a stored property, or None if it does not exist."""
+    return getattr(self._properties, name, None)
 
   def get_reported_property(self, name: str):
     """Return the last value received from the device, without protocol defaults."""
@@ -138,47 +154,42 @@ class Device(object):
       return 1.0
     return float(self._properties.get_precision(prop_name))
 
-  def update_property(self, name: str, value, notify_value=None, *, reported=True) -> None:
-    """Update the stored properties, if changed."""
-    if self._properties.get_type(name) is int:
+  def update_property(self, name: str, value, *, reported=True, notify=True) -> set[str]:
+    """Apply a complete update before notifying entities about its changed fields."""
+    if value is not None and self._properties.get_type(name) is int:
       scale = self._properties.get_scale(name)
       precision = self._properties.get_precision(name)
       value = round(value * scale / precision) * precision
 
-    if notify_value is None:
-      notify_value = value
-
-    with self._properties_lock:
-      changed = (name not in self._known_properties
-                 or getattr(self._properties, name) != value
-                 or (reported and name not in self._reported_properties))
-      self._known_properties.add(name)
-      if reported:
-        self._reported_properties[name] = value
-      setattr(self._properties, name, value)
-      if name == 't_control_value':
-        self._update_controlled_properties(value, reported=reported)
-      if changed:
-        self._notify_listeners(name, notify_value)
+    changed = {name} if (name not in self._known_properties
+                        or getattr(self._properties, name) != value
+                        or (reported and name not in self._reported_properties)) else set()
+    self._known_properties.add(name)
+    if reported:
+      self._reported_properties[name] = value
+    setattr(self._properties, name, value)
+    if name == 't_control_value':
+      changed.update(self._update_controlled_properties(value, reported=reported))
+    if notify:
+      self._notify_listeners(changed)
+    return changed
 
   def _update_controlled_properties(self, control: int, *, reported=True):
     raise NotImplementedError()
 
   def get_command_seq_no(self) -> int:
-    with self._commands_seq_no_lock:
-      seq_no = self._commands_seq_no
-      self._commands_seq_no += 1
-      return seq_no
+    seq_no = self._commands_seq_no
+    self._commands_seq_no += 1
+    return seq_no
 
   def is_update_valid(self, cur_update_no: int) -> bool:
-    with self._updates_seq_no_lock:
-      # Every once in a while the sequence number is zeroed out, so accept it.
-      if self._updates_seq_no > cur_update_no and cur_update_no > 0:
-        _LOGGER.error('Stale update found %d. Last update used is %d.', cur_update_no,
-                      self._updates_seq_no)
-        return False  # Old update
-      self._updates_seq_no = cur_update_no
-      return True
+    # Some devices reset the sequence number to zero during a session.
+    if self._updates_seq_no > cur_update_no and cur_update_no > 0:
+      _LOGGER.error('Stale update found %d. Last update used is %d.', cur_update_no,
+                    self._updates_seq_no)
+      return False
+    self._updates_seq_no = cur_update_no
+    return True
 
   def queue_command(self, name: str, value) -> None:
     if self._properties.get_read_only(name):
@@ -197,9 +208,7 @@ class Device(object):
       data_value = data_type(value)
 
     # If device has set t_control_value it is being controlled by this field.
-    if (name in ('t_power', 't_fan_speed', 't_work_mode', 't_temp_heatcold',
-                 't_eco', 't_temp', 't_fan_power', 't_fan_leftright', 't_fan_mute',
-                 't_temptype') and self._command_control()):
+    if name in _CONTROL_FIELDS and self._command_control():
       self._convert_to_control_value(name, data_value)
       return
 
@@ -223,9 +232,10 @@ class Device(object):
           self._pending_control = None
       self.update_property(name, typed_value, reported=False)
     # Add as a high priority command.
-    self.commands_queue.put_nowait(Command(10, time.time_ns(), command, property_updater))
+    self.commands_queue.put_nowait(Command(10, next(self._command_order), command, property_updater))
 
     self._queue_listener()
+    self._notify_listeners({"queued_commands"})
 
   def _command_control(self):
     """Merge writes into the last unsent command, even after an older status arrives."""
@@ -246,12 +256,12 @@ class Device(object):
         }]
     }
 
-  def _convert_to_control_value(self, name: str, value) -> int:
+  def _convert_to_control_value(self, name: str, value) -> None:
     raise NotImplementedError()
 
   def queue_status(self) -> None:
     queued = False
-    for data_field in fields(self._properties):
+    for data_field in self.get_property_fields():
       if data_field.name in self._pending_status:
         continue
       self._pending_status.add(data_field.name)
@@ -270,12 +280,22 @@ class Device(object):
       self._next_command_id += 1
       # Add as a lower-priority command.
       self.commands_queue.put_nowait(Command(
-          100, time.time_ns(), command, partial(self._pending_status.discard, data_field.name)))
+          100, next(self._command_order), command, partial(self._pending_status.discard, data_field.name)))
     if queued:
       self._queue_listener()
+      self._notify_listeners({"queued_commands"})
 
   def update_key(self, key: dict) -> dict:
-    return self._config.update(key)
+    try:
+      result = self._config.update(key)
+    except KeyIdReplaced:
+      if not self.lan_key_invalid:
+        self.lan_key_invalid = True
+        self._notify_listeners({'lan_key_invalid'})
+      raise
+    self.lan_key_invalid = False
+    self._notify_listeners({'lan_key_invalid'})
+    return result
 
   def get_app_encryption(self) -> Encryption:
     return self._config.app
@@ -286,22 +306,18 @@ class Device(object):
 
 class AcDevice(Device):
 
-  def __init__(self, config: Dict[str, str], notifier: Callable[[None], None]):
+  def __init__(self, config: Dict[str, str], notifier: Callable[[], None]):
     super().__init__(config, AcProperties(), notifier)
     self.topics = {
         'env_temp': 'f_temp_in',
         'fan_speed': 't_fan_speed',
-        'verti_sweep': 't_swing_angle',
         'work_mode': 't_work_mode',
         'power': 't_power',
         'swing_mode': 't_fan_power',
         'swing_horizontal_mode': 't_fan_leftright',
         'temp': 't_temp'
     }
-    self.work_modes = ['off', 'fan_only', 'heat', 'cool', 'dry', 'auto']
     self.fan_modes = ['auto', 'lower', 'low', 'medium', 'high', 'higher']
-    self.verti_sweeps = ['sweep', 'auto', 'angle1', 'angle2', 'angle3', 'angle4', 'angle5',
-                         'angle6']
 
   # @override to add special support for t_power.
   def queue_command(self, name: str, value) -> None:
@@ -325,265 +341,28 @@ class AcDevice(Device):
       super().queue_command('t_sleep', 'STOP')
       super().queue_command('t_temp_eight', 'OFF')
 
-  def get_env_temp(self) -> int:
-    return self.get_property('f_temp_in')
-
-  def set_power(self, setting: Power) -> None:
-    control = self._command_control()
-    control = control_value.clear_up_change_flags(control)
-    if control:
-      control = control_value.set_power(control, setting)
-      self.queue_command('t_control_value', control)
-    else:
-      self.queue_command('t_power', setting)
-
-  def get_power(self) -> Power:
-    control = self.get_property('t_control_value')
-    if control:
-      return control_value.get_power(control)
-    else:
-      return self.get_property('t_power')
-
-  def set_temperature(self, setting: int) -> None:
-    control = self._command_control()
-    control = control_value.clear_up_change_flags(control)
-    if control:
-      control = control_value.set_temp(control, setting)
-      self.queue_command('t_control_value', control)
-    else:
-      self.queue_command('t_temp', setting)
-
-  def get_temperature(self) -> int:
-    control = self.get_property('t_control_value')
-    if control:
-      return control_value.get_temp(control)
-    else:
-      return self.get_property('t_temp')
-
-  def set_sleep(self, setting: SleepMode) -> None:
-    self.queue_command('t_sleep', setting)
-
-  def get_sleep(self) -> SleepMode:
-    return self.get_property('t_sleep')
-
-  def set_work_mode(self, setting: AcWorkMode) -> None:
-    control = self._command_control()
-    control = control_value.clear_up_change_flags(control)
-    if control:
-      if control_value.get_power(control) == Power.OFF:
-        control = control_value.set_power(control, Power.ON)
-      control = control_value.set_work_mode(control, setting)
-      self.queue_command('t_control_value', control)
-    else:
-      self.queue_command('t_work_mode', setting)
-
-  def get_work_mode(self) -> AcWorkMode:
-    control = self.get_property('t_control_value')
-    if control:
-      return control_value.get_work_mode(control)
-    else:
-      return self.get_property('t_work_mode')
-
-  def set_fan_speed(self, setting: FanSpeed) -> None:
-    control = self._command_control()
-    control = control_value.clear_up_change_flags(control)
-    if control:
-      control = control_value.set_fan_speed(control, setting)
-      self.queue_command('t_control_value', control)
-    else:
-      self.queue_command('t_fan_speed', setting)
-
-  def get_fan_speed(self) -> FanSpeed:
-    control = self.get_property('t_control_value')
-    if control:
-      return control_value.get_fan_speed(control)
-    else:
-      return self.get_property('t_fan_speed')
-
-  def set_verti_sweep(self, setting: VertiSweep) -> None:
-    self.queue_command('t_swing_angle', setting)
-
-  def get_verti_sweep(self) -> VertiSweep:
-    return self.get_property('t_swing_angle')
-
-  def set_fan_vertical(self, setting: AirFlow) -> None:
-    control = self._command_control()
-    control = control_value.clear_up_change_flags(control)
-    if control:
-      control = control_value.set_fan_power(control, setting)
-      self.queue_command('t_control_value', control)
-    else:
-      self.queue_command('t_fan_power', setting)
-
-  def get_fan_vertical(self) -> AirFlow:
-    control = self.get_property('t_control_value')
-    if control:
-      return control_value.get_fan_power(control)
-    else:
-      return self.get_property('t_fan_power')
-
-  def set_fan_horizontal(self, setting: AirFlow) -> None:
-    control = self._command_control()
-    control = control_value.clear_up_change_flags(control)
-    if control:
-      control = control_value.set_fan_lr(control, setting)
-      self.queue_command('t_control_value', control)
-    else:
-      self.queue_command('t_fan_leftright', setting)
-
-  def get_fan_horizontal(self) -> AirFlow:
-    control = self.get_property('t_control_value')
-    if control:
-      return control_value.get_fan_lr(control)
-    else:
-      return self.get_property('t_fan_leftright')
-
-  def set_fan_mute(self, setting: Quiet) -> None:
-    control = self._command_control()
-    control = control_value.clear_up_change_flags(control)
-    if control:
-      control = control_value.set_fan_mute(control, setting)
-      self.queue_command('t_control_value', control)
-    else:
-      self.queue_command('t_fan_mute', setting)
-
-  def get_fan_mute(self) -> Quiet:
-    control = self.get_property('t_control_value')
-    if control:
-      return control_value.get_fan_mute(control)
-    else:
-      return self.get_property('t_fan_mute')
-
-  def set_fast_heat_cold(self, setting: FastColdHeat):
-    control = self._command_control()
-    control = control_value.clear_up_change_flags(control)
-    if control:
-      control = control_value.set_heat_cold(control, setting)
-      self.queue_command('t_control_value', control)
-    else:
-      self.queue_command('t_temp_heatcold', setting)
-
-  def get_fast_heat_cold(self) -> FastColdHeat:
-    control = self.get_property('t_control_value')
-    if control:
-      return control_value.get_heat_cold(control)
-    else:
-      return self.get_property('t_temp_heatcold')
-
-  def set_eco(self, setting: Economy) -> None:
-    control = self._command_control()
-    control = control_value.clear_up_change_flags(control)
-    if control:
-      control = control_value.set_eco(control, setting)
-      self.queue_command('t_control_value', control)
-    else:
-      self.queue_command('t_eco', setting)
-
-  def get_eco(self) -> Economy:
-    control = self.get_property('t_control_value')
-    if control:
-      return control_value.get_eco(control)
-    else:
-      return self.get_property('t_eco')
-
-  def set_temptype(self, setting: TemperatureUnit) -> None:
-    control = self._command_control()
-    control = control_value.clear_up_change_flags(control)
-    if control:
-      control = control_value.set_temptype(control, setting)
-      self.queue_command('t_control_value', control)
-    else:
-      self.queue_command('t_temptype', setting)
-
-  def get_temptype(self) -> TemperatureUnit:
-    control = self.get_property('t_control_value')
-    if control:
-      return control_value.get_temptype(control)
-    else:
-      return self.get_property('t_temptype')
-
-  def set_swing(self, setting: AirFlowState) -> None:
-    control = self._command_control()
-    control = control_value.clear_up_change_flags(control)
-    if control:
-      if setting == AirFlowState.OFF:
-        control = control_value.set_fan_power(control, AirFlow.OFF)
-        control = control_value.set_fan_lr(control, AirFlow.OFF)
-      elif setting == AirFlowState.VERTICAL_ONLY:
-        control = control_value.set_fan_power(control, AirFlow.ON)
-        control = control_value.set_fan_lr(control, AirFlow.OFF)
-      elif setting == AirFlowState.HORIZONTAL_ONLY:
-        control = control_value.set_fan_power(control, AirFlow.OFF)
-        control = control_value.set_fan_lr(control, AirFlow.ON)
-      elif setting == AirFlowState.VERTICAL_AND_HORIZONTAL:
-        control = control_value.set_fan_power(control, AirFlow.ON)
-        control = control_value.set_fan_lr(control, AirFlow.ON)
-      self.queue_command("t_control_value", control)
-    else:
-      if setting == AirFlowState.OFF:
-        self.queue_command("t_fan_power", AirFlow.OFF)
-        self.queue_command("t_fan_leftright", AirFlow.OFF)
-      elif setting == AirFlowState.VERTICAL_ONLY:
-        self.queue_command("t_fan_power", AirFlow.ON)
-        self.queue_command("t_fan_leftright", AirFlow.OFF)
-      elif setting == AirFlowState.HORIZONTAL_ONLY:
-        self.queue_command("t_fan_power", AirFlow.OFF)
-        self.queue_command("t_fan_leftright", AirFlow.ON)
-      elif setting == AirFlowState.VERTICAL_AND_HORIZONTAL:
-        self.queue_command("t_fan_power", AirFlow.ON)
-        self.queue_command("t_fan_leftright", AirFlow.ON)
-
-  def _convert_to_control_value(self, name: str, value) -> int:
-    if name == 't_power':
-      return self.set_power(value)
-    elif name == 't_fan_speed':
-      return self.set_fan_speed(value)
-    elif name == 't_swing_angle':
-      return self.set_verti_sweep(value)
-    elif name == 't_work_mode':
-      return self.set_work_mode(value)
-    elif name == 't_temp_heatcold':
-      return self.set_fast_heat_cold(value)
-    elif name == 't_eco':
-      return self.set_eco(value)
-    elif name == 't_temp':
-      return self.set_temperature(value)
-    elif name == 't_fan_power':
-      return self.set_fan_vertical(value)
-    elif name == 't_fan_leftright':
-      return self.set_fan_horizontal(value)
-    elif name == 't_fan_mute':
-      return self.set_fan_mute(value)
-    elif name == 't_temptype':
-      return self.set_temptype(value)
-    else:
-      _LOGGER.error('Cannot convert to control value property {}'.format(name))
-      raise ValueError()
+  def _convert_to_control_value(self, name: str, value) -> None:
+    control = control_value.clear_up_change_flags(self._command_control())
+    if name == 't_work_mode' and control_value.get_power(control) == Power.OFF:
+      control = control_value.set_power(control, Power.ON)
+    setter, _ = _CONTROL_FIELDS[name]
+    self.queue_command('t_control_value', setter(control, value))
 
   def _update_controlled_properties(self, control: int, *, reported=True):
-    for name, decoder in (
-        ('t_power', control_value.get_power),
-        ('t_fan_speed', control_value.get_fan_speed),
-        ('t_work_mode', control_value.get_work_mode),
-        ('t_temp_heatcold', control_value.get_heat_cold),
-        ('t_eco', control_value.get_eco),
-        ('t_temp', control_value.get_temp),
-        ('t_fan_power', control_value.get_fan_power),
-        ('t_fan_leftright', control_value.get_fan_lr),
-        ('t_fan_mute', control_value.get_fan_mute),
-        ('t_temptype', control_value.get_temptype),
-    ):
+    changed = set()
+    for name, (_, decoder) in _CONTROL_FIELDS.items():
       try:
         value = decoder(control)
       except ValueError:
         _LOGGER.debug('Unknown %s in control value %s', name, control)
         value = None
-      self.update_property(name, value, reported=reported)
+      changed.update(self.update_property(name, value, reported=reported, notify=False))
+    return changed
 
 
 class FglDevice(Device):
 
-  def __init__(self, config: Dict[str, str], notifier: Callable[[None], None]):
+  def __init__(self, config: Dict[str, str], notifier: Callable[[], None]):
     super().__init__(config, FglProperties(), notifier)
     self.topics = {
         'fan_speed': 'fan_speed',
@@ -593,13 +372,12 @@ class FglDevice(Device):
         'display_temperature': 'display_temperature',
         'outdoor_temperature': 'outdoor_temperature'
     }
-    self.work_modes = ['off', 'fan_only', 'heat', 'cool', 'dry', 'auto']
     self.fan_modes = ['auto', 'diffuse', 'low', 'medium', 'high']
 
 
 class FglBDevice(Device):
 
-  def __init__(self, config: Dict[str, str], notifier: Callable[[None], None]):
+  def __init__(self, config: Dict[str, str], notifier: Callable[[], None]):
     super().__init__(config, FglBProperties(), notifier)
     self.topics = {
         'fan_speed': 'fan_speed',
@@ -607,12 +385,11 @@ class FglBDevice(Device):
         'temp': 'adjust_temperature',
         'display_temperature': 'display_temperature'
     }
-    self.work_modes = ['off', 'fan_only', 'heat', 'cool', 'dry', 'auto']
     self.fan_modes = ['auto', 'diffuse', 'low', 'medium', 'high']
 
 
 class HumidifierDevice(Device):
 
-  def __init__(self, config: Dict[str, str], notifier: Callable[[None], None]):
+  def __init__(self, config: Dict[str, str], notifier: Callable[[], None]):
     super().__init__(config, HumidifierProperties(), notifier)
-    self.topics = {'env_temp': 'temp', 'power': 'switch'}
+    self.topics = {'env_temp': 'temp', 'power': 'switch', 'humidity': 'humi'}

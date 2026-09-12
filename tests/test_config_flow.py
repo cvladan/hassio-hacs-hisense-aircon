@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 from aiohttp import web
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry, ConfigEntries
-from homeassistant.helpers import device_registry as dr, entity_registry as er, frame
+from homeassistant.helpers import device_registry as dr, entity_registry as er, frame, issue_registry as ir
 from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
 
 from custom_components.hisense_aircon.config_flow import HisenseConfigFlow
@@ -32,6 +32,7 @@ class ConfigFlowTests(unittest.IsolatedAsyncioTestCase):
       dr.async_setup(self.hass)
     await dr.async_load(self.hass, load_empty=True)
     await er.async_load(self.hass, load_empty=True)
+    await ir.async_load(self.hass, load_empty=True)
     self.entry = self.add_entry([device()])
     self.flow = HisenseConfigFlow()
     self.flow.hass = self.hass
@@ -170,7 +171,7 @@ class ConfigFlowTests(unittest.IsolatedAsyncioTestCase):
       controller = HisenseController(self.hass, other)
       self.assertEqual(controller.handlers.device_ips, {'192.0.2.20', '192.0.2.3'})
       controller._notifier.register_device(controller.devices[0], '192.0.2.100')
-      self.assertEqual(controller._notifier._configurations[0].headers['Host'], '192.0.2.20')
+      self.assertEqual(controller._notifier._configurations[0].device.ip_address, '192.0.2.20')
       await self.flow.async_step_dhcp(DhcpServiceInfo('192.0.2.20', '', 'aabbccddeeff'))
       await self.hass.async_block_till_done()
       reload.assert_awaited_once()
@@ -479,15 +480,83 @@ class ConfigFlowTests(unittest.IsolatedAsyncioTestCase):
     from unittest.mock import Mock
     from homeassistant.core import get_hassjob_callable_job_type, HassJobType
     from custom_components.hisense_aircon.entity import HisensePropertyEntity
-    from dataclasses import fields
     controller = HisenseController(self.hass, self.entry)
     unit = controller.devices[0]
-    field = next(f for f in fields(unit.get_all_properties()) if f.name == 'f_voltage')
+    field = next(f for f in unit.get_property_fields() if f.name == 'f_voltage')
     entity = HisensePropertyEntity(controller, unit, field)
     entity.hass = self.hass
     entity.async_write_ha_state = Mock()
     self.assertEqual(get_hassjob_callable_job_type(entity._handle_device_update), HassJobType.Callback)
     await entity.async_added_to_hass()
-    controller._handle_property_update(unit.mac_address, 'f_voltage', 230)
+    controller._handle_property_update(unit.mac_address, {'f_voltage'})
     await self.hass.async_block_till_done()
     entity.async_write_ha_state.assert_called_once()
+
+  async def test_packed_reports_publish_complete_climate_state_once(self):
+    from unittest.mock import Mock
+    from custom_components.hisense_aircon.climate import HisenseClimate
+    from custom_components.hisense_aircon.query_handlers import QueryHandlers
+    from test_protocol import ac
+    controller = HisenseController(self.hass, self.entry)
+    unit = controller.devices[0]
+    unit.add_property_change_listener(controller._handle_property_update)
+    entity = HisenseClimate(controller, unit)
+    entity.hass = self.hass
+    snapshots = []
+    entity.async_write_ha_state = Mock(side_effect=lambda: snapshots.append(
+        (entity.target_temperature, entity.hvac_mode, entity.fan_mode)))
+    await entity.async_added_to_hass()
+    unit.update_property('t_control_value', ac().get_property('t_control_value'))
+    self.assertEqual(snapshots, [(24, 'cool', 'auto')])
+    entity.async_write_ha_state.reset_mock()
+    unit.update_property('f_voltage', 230)
+    unit.update_property('t_control_value', unit.get_property('t_control_value'))
+    await entity.async_set_temperature(temperature=22)
+    entity.async_write_ha_state.assert_not_called()
+    await QueryHandlers([unit]).command_handler(SimpleNamespace(remote=unit.ip_address))
+    entity.async_write_ha_state.assert_called_once()
+    self.assertEqual(entity.target_temperature, 22)
+    self.assertEqual(unit.get_reported_property('t_temp'), 24)
+
+  async def test_lan_key_repair_survives_reload_and_clears_on_exchange_or_removal(self):
+    from custom_components.hisense_aircon import async_remove_entry
+    from custom_components.hisense_aircon.error import KeyIdReplaced
+    controller = HisenseController(self.hass, self.entry)
+    unit = controller.devices[0]
+    unit.add_property_change_listener(controller._handle_property_update)
+    key = {'key_id': 2, 'random_1': 'device', 'time_1': 123}
+    issue_id = (DOMAIN, f'{self.entry.entry_id}_{unit.mac_address}_lan_key')
+    for _ in range(2):
+      with self.assertRaises(KeyIdReplaced):
+        unit.update_key(key)
+    issues = ir.async_get(self.hass).issues
+    self.assertIn(issue_id, issues)
+    self.assertEqual(sum(domain == DOMAIN for domain, _ in issues), 1)
+    replacement = HisenseController(self.hass, self.entry)
+    unit = replacement.devices[0]
+    unit.add_property_change_listener(replacement._handle_property_update)
+    unit.update_key({**key, 'key_id': 1})
+    self.assertNotIn(issue_id, issues)
+    with self.assertRaises(KeyIdReplaced):
+      unit.update_key(key)
+    await async_remove_entry(self.hass, self.entry)
+    self.assertNotIn(issue_id, issues)
+
+  async def test_humidifier_migration_removes_only_replaced_controls(self):
+    from unittest.mock import Mock
+    from custom_components.hisense_aircon import async_setup_entry
+    from custom_components.hisense_aircon.aircon import Device
+    unit = Device.create({**device(), 'model': '0001-0401-0001'}, lambda: None)
+    registry = er.async_get(self.hass)
+    old = [registry.async_get_or_create(domain, DOMAIN, f'{unit.mac_address}_{prop}', config_entry=self.entry)
+           for domain, prop in [('switch', 'switch'), ('number', 'humi'), ('select', 'workmode')]]
+    keep = registry.async_get_or_create('select', DOMAIN, f'{unit.mac_address}_mist', config_entry=self.entry)
+    other = self.add_entry([device('aabbccddeeff', '192.0.2.2')])
+    other_entity = registry.async_get_or_create('number', DOMAIN, 'aabbccddeeff_humi', config_entry=other)
+    controller = Mock(devices=[unit], async_start=AsyncMock())
+    with patch('custom_components.hisense_aircon.HisenseController', return_value=controller), patch.object(
+        self.hass.config_entries, 'async_forward_entry_setups', AsyncMock()):
+      await async_setup_entry(self.hass, self.entry)
+    self.assertTrue(all(registry.async_get(entity.entity_id) is None for entity in old))
+    self.assertIsNotNone(registry.async_get(keep.entity_id))
+    self.assertIsNotNone(registry.async_get(other_entity.entity_id))
