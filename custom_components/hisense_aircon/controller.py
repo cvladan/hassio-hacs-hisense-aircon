@@ -10,7 +10,7 @@ from aiohttp import web
 
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.components.network import async_get_source_ip
-from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
+from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady, HomeAssistantError
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -21,6 +21,7 @@ from .const import (
     CONF_CALLBACK_PORT,
     CONF_DEVICES,
     CONF_LOCAL_IP,
+    CONF_SEPARATE_HTTP_PORT,
     CONF_STATUS_INTERVAL,
     CONF_TEMP_TYPE,
     CONF_TEMP_TYPE_AUTO,
@@ -40,6 +41,22 @@ type HisenseConfigEntry = ConfigEntry[HisenseController]
 _WAIT_FOR_EMPTY_QUEUE = 10.0
 
 
+def callback_error(hass: HomeAssistant, settings: dict) -> str | None:
+  """Detect local port conflicts and direct callbacks to an HTTPS server."""
+  http = getattr(hass, "http", None)
+  ha_port = getattr(http, "server_port", DEFAULT_CALLBACK_PORT)
+  port = settings.get(CONF_SEPARATE_HTTP_PORT, 0)
+  if port:
+    if port == ha_port:
+      return "listener_port_conflict"
+  elif (getattr(http, "ssl_certificate", None)
+        and settings.get(CONF_CALLBACK_PORT, DEFAULT_CALLBACK_PORT) == ha_port
+        and not (settings.get(CONF_LOCAL_IP) or "").strip()):
+    # An explicit address or different port may point to a plain HTTP proxy.
+    return "https_callback"
+  return None
+
+
 class HisenseController:
   """Own the LAN server endpoints, notifier and device update loops."""
 
@@ -53,8 +70,9 @@ class HisenseController:
     self.devices_by_mac = {device.mac_address: device for device in self.devices}
     self.handlers = QueryHandlers(self.devices)
     self._tasks: list[asyncio.Task[Any]] = []
+    self._http_runner: web.AppRunner | None = None
     self._notifier = Notifier(
-        self._option(CONF_CALLBACK_PORT, DEFAULT_CALLBACK_PORT),
+        self._option(CONF_SEPARATE_HTTP_PORT, 0) or self._option(CONF_CALLBACK_PORT, DEFAULT_CALLBACK_PORT),
         self._option(CONF_LOCAL_IP),
         loop=hass.loop,
     )
@@ -71,7 +89,12 @@ class HisenseController:
 
   async def async_start(self) -> None:
     """Start the LAN bridge."""
-    self._register_views()
+    if error := callback_error(self.hass, {**self.entry.data, **self.entry.options}):
+      raise ConfigEntryError(translation_domain=DOMAIN, translation_key=error)
+    if self._option(CONF_SEPARATE_HTTP_PORT, 0):
+      await self._async_start_http_listener()
+    else:
+      self._register_views()
 
     for device in self.devices:
       try:
@@ -113,6 +136,30 @@ class HisenseController:
     if self._tasks:
       await asyncio.gather(*self._tasks, return_exceptions=True)
     self._tasks.clear()
+    if self._http_runner is not None:
+      await self._http_runner.cleanup()
+      self._http_runner = None
+
+  async def _async_start_http_listener(self) -> None:
+    """Serve only this entry's device protocol over plain IPv4 HTTP."""
+    app = web.Application(client_max_size=QueryHandlers._MAX_REQUEST_BODY)
+    app.router.add_post("/local_lan/key_exchange.json", self.handlers.key_exchange_handler)
+    app.router.add_get("/local_lan/commands.json", self.handlers.command_handler)
+    for path in ("property/datapoint.json", "property/datapoint/ack.json",
+                 "node/property/datapoint.json", "node/property/datapoint/ack.json"):
+      app.router.add_post(f"/local_lan/{path}", self.handlers.property_update_handler)
+    self._http_runner = web.AppRunner(app, access_log=None)
+    port = self._option(CONF_SEPARATE_HTTP_PORT)
+    try:
+      await self._http_runner.setup()
+      await web.TCPSite(self._http_runner, "0.0.0.0", port).start()
+    except OSError as ex:
+      await self._http_runner.cleanup()
+      self._http_runner = None
+      raise ConfigEntryNotReady(
+          translation_domain=DOMAIN, translation_key="listener_bind_failed",
+          translation_placeholders={"port": str(port)},
+      ) from ex
 
   def get_device(self, mac_address: str) -> Device | None:
     """Return a device by MAC address."""

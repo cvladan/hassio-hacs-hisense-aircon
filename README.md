@@ -30,7 +30,7 @@ These modules are installed in air conditioners and humidifiers manufactured or 
 1. A supported air conditioner or humidifier with a HiSense AEH-W4B1/AEH-W4E1 module, or a supported Fujitsu FGLair device.
 2. The device must already be configured in its original mobile app and connected to your network.
 3. The device must be reachable from Home Assistant on the local network.
-4. Home Assistant must be reachable by the air conditioner over plain HTTP on the configured callback port, usually `8123`.
+4. The air conditioner must be able to reach a plain HTTP callback port on the Home Assistant host. If Home Assistant uses HTTPS, enable the integration's separate HTTP listener as described under Network Notes.
 5. Pick the app code for the mobile app you used to configure the device:
 
    | Code       | App Name            | App link |
@@ -95,6 +95,7 @@ Advanced settings are optional and can usually stay collapsed:
 
 - device name filter, if you want discovery to look for only one exact app device name
 - Home Assistant HTTP port, usually `8123`
+- separate HTTP listener port, `0` to keep using the HA server or a free port such as `8124` when HA uses HTTPS
 - optional Home Assistant local IP if HA has multiple network interfaces or VLANs
 - device temperature unit override, if the automatic app-code detection reports the wrong unit
 
@@ -113,6 +114,7 @@ Enter:
 - model
 - temperature unit
 - Home Assistant HTTP port
+- optional separate HTTP listener port for HA installations using HTTPS
 - optional Home Assistant local IP
 
 ## Managing Devices After Setup
@@ -151,7 +153,7 @@ Sleep, Quiet, Eco, Super, backlight, swing angle, and the device display tempera
 
 ## Network Notes
 
-The air conditioner must be able to reach Home Assistant by plain HTTP on the configured port. The integration registers these local endpoints:
+The air conditioner uses plain HTTP for callbacks, even when Home Assistant itself uses HTTPS. By default, the integration uses the Home Assistant web server and the configured **Home Assistant HTTP port**. It serves these device endpoints:
 
 - `/local_lan/key_exchange.json`
 - `/local_lan/commands.json`
@@ -160,9 +162,26 @@ The air conditioner must be able to reach Home Assistant by plain HTTP on the co
 - `/local_lan/node/property/datapoint.json`
 - `/local_lan/node/property/datapoint/ack.json`
 
-For a quick browser check after the integration is loaded, open any endpoint directly. It will return a small JSON explanation when the browser method is not the real device protocol call. The `/local_lan/commands.json` endpoint is special: the air conditioner uses `GET` there, so browser checks from non-device IP addresses get the explanation while requests from the configured air conditioner IP get the real command response.
+When using the Home Assistant web server, you can open an endpoint in a browser for a small JSON connectivity explanation. The `/local_lan/commands.json` endpoint is special: the air conditioner uses `GET` there, so browser checks from other IP addresses get the explanation while requests from the configured air conditioner IP get the real command response.
 
 Home Assistant selects a callback address for the route to each device. Leave **Home Assistant local IP address** empty for this automatic selection, or enter an IPv4 address to override it for every device in that configuration.
+
+### Home Assistant with HTTPS
+
+Starting with version 1.4.0, you can enable a separate HTTP listener for device callbacks while keeping HTTPS on Home Assistant:
+
+1. Update the integration through HACS and restart Home Assistant.
+2. Open **Settings > Devices & services > Hisense Air Conditioner > Configure**. During initial cloud setup, open **Advanced Settings** instead.
+3. Set **Separate HTTP listener port (0 to disable)** to a free port, for example `8124`, and save.
+4. Allow the air conditioner to reach that TCP port on the Home Assistant host. With container bridge networking, publish the same port on the host, for example `8124:8124`. With host networking, no extra container port mapping is needed.
+
+This port overrides **Home Assistant HTTP port** for that configuration. The listener binds to all IPv4 interfaces and serves only the six device endpoints above, using the same source IP checks, LAN key exchange, message signatures, and request size limits. It does not expose the HA interface or API. Keep it on the local network. Browser requests from an unconfigured device address are rejected rather than showing the HA endpoint explanation.
+
+All devices in one configuration share its listener. Each configuration using a separate listener needs a different free port, for example `8124` and `8125`. Configurations using the HA web server can continue alongside them. Reloading or removing one configuration closes only its listener. A busy port produces a setup error without stopping the configuration already using it.
+
+The integration detects direct callbacks to HA's HTTPS port and explains how to enable the listener. Explicit callback address or port overrides are still allowed for existing plain HTTP proxies; those overrides must actually provide an HTTP route to HA. If HTTPS is handled by a reverse proxy and HA already serves HTTP on the local network, the separate listener is optional.
+
+No changes are required for working HTTP installations. The default `0` keeps the existing callback settings. To switch back, set the separate port to `0` and make sure **Home Assistant HTTP port** is reachable over plain HTTP. Saving options also retries an entry whose setup previously failed.
 
 ## Supported App Codes
 
@@ -278,4 +297,4 @@ python -m unittest discover -s tests -v
 
 CI runs these checks on Home Assistant 2026.3.0 and 2026.9.1, plus HACS validation and hassfest. To check the minimum version locally, use a separate environment with `homeassistant==2026.3.0`.
 
-The checks use Home Assistant classes and a local aiohttp test server. They do not contact the cloud or a physical air conditioner. Real device checks are still needed for Quiet behavior, recovery after connection loss, and cloud discovery across supported apps.
+The checks use Home Assistant classes and local HTTP and HTTPS test servers. They cover encrypted callbacks, multiple devices, mixed shared and separate listeners, source isolation, busy ports, and cleanup after failure or reload. The test with several loopback source addresses runs on Linux CI and is skipped on systems without those addresses. They do not contact the cloud or a physical air conditioner. Real device checks are still needed for Quiet behavior, recovery after connection loss, and cloud discovery across supported apps.

@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.4.0
+
+- Add an optional separate HTTP listener for air conditioner callbacks, restoring support for Home Assistant installations that serve HTTPS directly. Fixes the limitation present since the original HACS conversion, reported in #13.
+- Explain direct HTTPS callback incompatibility during setup and in integration options. Report listener port conflicts and binding failures.
+- Keep each listener scoped to its own configuration and reuse the existing device IP checks, key exchange, signed messages, and request limits. Multiple devices can share one configuration; separate configurations use distinct listener ports.
+- Close listener sockets after unload, cancellation, or failed setup. Saving options retries failed entries without adding a second reload for working entries.
+- Add regression checks for HTTP and HTTPS coexistence, encrypted Fujitsu callbacks, multiple devices and mixed configurations, source isolation, and port lifecycle.
+
+Migration: Working HTTP installations require no changes. For HA with HTTPS, update and restart Home Assistant, open the integration's Configure options, and set **Separate HTTP listener port (0 to disable)** to a free port such as `8124`. Make that port reachable from the air conditioner. Use a different port for each configuration. The default `0` preserves existing callback settings. No device rediscovery or new LAN keys are required.
+
 ## 1.3.0
 
 - Require Home Assistant 2026.3.0 or newer, with regression checks on 2026.3.0 and 2026.9.1, HACS validation, and hassfest.

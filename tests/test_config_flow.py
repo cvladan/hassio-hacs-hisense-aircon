@@ -244,6 +244,74 @@ class ConfigFlowTests(unittest.IsolatedAsyncioTestCase):
     source.assert_not_awaited()
     self.assertEqual([c.local_ip for c in controller._notifier._configurations], ['192.0.2.200'] * 2)
 
+  async def test_https_forms_store_listener_and_preserve_reconfiguration(self):
+    from custom_components.hisense_aircon.config_flow import HisenseOptionsFlow
+    from homeassistant.helpers import config_validation as cv
+    self.hass.http = SimpleNamespace(ssl_certificate='cert.pem', server_port=8123)
+    self.flow.context = {'source': 'user'}
+    for step in (self.flow.async_step_cloud, self.flow.async_step_manual):
+      form = await step()
+      self.assertEqual(form['errors']['base'], 'https_callback')
+    manual = dict(name='Manual', app='hisense-eu', host='192.0.2.2',
+                  mac_address='aabbccddeeff', lanip_key='testkey', lanip_key_id=1,
+                  model='AEH-W4E1', temp_type='C', separate_http_port=8123)
+    self.assertEqual((await self.flow.async_step_manual(manual))['errors']['base'], 'listener_port_conflict')
+    manual['separate_http_port'] = 8124
+    result = await self.flow.async_step_manual(manual)
+    self.assertEqual(result['data']['separate_http_port'], 8124)
+    discovered = [{**device('112233445566', '192.0.2.3'), 'product_name': 'Second account',
+                   'mac': '112233445566', 'lan_ip': '192.0.2.3'}]
+    with patch('custom_components.hisense_aircon.config_flow.perform_discovery',
+               AsyncMock(return_value=discovered)), patch(
+                   'custom_components.hisense_aircon.config_flow.async_get_clientsession'):
+      await self.flow.async_step_cloud({'app': 'hisense-eu', 'username': 'u', 'password': 'p',
+                                       'advanced_settings': {'separate_http_port': 8125}})
+    result = await self.flow.async_step_select_devices({'selected_devices': ['112233445566']})
+    self.assertEqual(result['data']['separate_http_port'], 8125)
+    self.hass.config_entries.async_update_entry(self.entry, options={'separate_http_port': 8126})
+    options = HisenseOptionsFlow(self.entry)
+    options.hass = self.hass
+    form = await options.async_step_init()
+    self.assertEqual(form['data_schema']({'temp_type': 'auto'})['separate_http_port'], 8126)
+    if hasattr(cv, 'to_field_list'):
+      serialize = cv.to_field_list
+    else:
+      from voluptuous_serialize import convert as serialize
+    self.assertTrue(serialize(form['data_schema'], custom_serializer=cv.custom_serializer))
+    for value in (-1, 65536):
+      import voluptuous as vol
+      with self.assertRaises(vol.Invalid):
+        form['data_schema']({'temp_type': 'auto', 'separate_http_port': value})
+    result = await options.async_step_init({'temp_type': 'auto', 'separate_http_port': 8127})
+    self.assertEqual(result['data']['separate_http_port'], 8127)
+    self.assertEqual((await options.async_step_init({'separate_http_port': 0}))['errors']['base'], 'https_callback')
+    self.flow.context = {'source': 'reconfigure', 'entry_id': self.entry.entry_id}
+    form = await self.flow.async_step_manual()
+    self.assertFalse(form['errors'])
+    self.assertNotIn('separate_http_port', {key.schema for key in form['data_schema'].schema})
+    await self.flow.async_step_manual(manual)
+    self.assertEqual(self.entry.options['separate_http_port'], 8126)
+
+  async def test_options_reload_after_failed_setup_without_double_reload_when_loaded(self):
+    from custom_components.hisense_aircon.config_flow import HisenseOptionsFlow
+    options = HisenseOptionsFlow(self.entry)
+    options.hass = self.hass
+    options.handler = self.entry.entry_id
+    with patch.object(self.hass.config_entries, 'async_schedule_reload') as reload:
+      result = await options.async_step_init({'separate_http_port': 8124, 'temp_type': 'auto'})
+      await self.hass.config_entries.options.async_finish_flow(options, result)
+      reload.assert_called_once_with(self.entry.entry_id)
+    # Successfully loaded entries keep the existing reload listener.
+    listener = AsyncMock()
+    remove = self.entry.add_update_listener(listener)
+    with patch.object(self.hass.config_entries, 'async_schedule_reload') as reload:
+      result = await options.async_step_init({'separate_http_port': 8125, 'temp_type': 'auto'})
+      await self.hass.config_entries.options.async_finish_flow(options, result)
+      await self.hass.async_block_till_done()
+      reload.assert_not_called()
+    listener.assert_awaited_once_with(self.hass, self.entry)
+    remove()
+
   async def test_setup_failure_and_unload_cleanup(self):
     import asyncio
     from unittest.mock import Mock

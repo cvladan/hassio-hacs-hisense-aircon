@@ -66,20 +66,22 @@
         "sections": {
           "advanced_settings": {
             "name": "Impostazioni avanzate",
-            "description": "La maggior parte degli utenti dovrebbe lasciare invariati questi valori. Usa questa sezione solo per aggiungere un dispositivo specifico dell'account, se Home Assistant dispone di più interfacce di rete o VLAN, se la porta HTTP non è 8123 oppure per modificare la frequenza di aggiornamento completo.",
+            "description": "La maggior parte degli utenti dovrebbe lasciare invariati questi valori. Usa questa sezione solo per aggiungere un dispositivo specifico dell'account, se Home Assistant dispone di più interfacce di rete o VLAN, se la porta HTTP non è 8123 oppure per modificare la frequenza di aggiornamento completo. Usa questa sezione anche quando Home Assistant usa HTTPS.",
             "data": {
               "device_name": "Filtro nome dispositivo",
               "local_ip": "Indirizzo IP locale di Home Assistant",
               "callback_port": "Porta HTTP di Home Assistant",
               "status_interval": "Intervallo aggiornamento stato",
-              "temp_type": "Unità di temperatura del dispositivo"
+              "temp_type": "Unità di temperatura del dispositivo",
+              "separate_http_port": "Porta HTTP separata (0 per disattivare)"
             },
             "data_description": {
               "device_name": "Nome esatto facoltativo del dispositivo nell'app mobile. Lascia vuoto per aggiungere tutti i dispositivi compatibili trovati nell'account.",
               "local_ip": "Indirizzo IP facoltativo che Home Assistant deve comunicare al climatizzatore. Lascia vuoto per il rilevamento automatico. Impostalo in presenza di più indirizzi IP, Docker/macvlan o VLAN.",
               "callback_port": "Porta HTTP non crittografata di Home Assistant raggiungibile dal climatizzatore, normalmente 8123.",
               "status_interval": "Frequenza, in secondi, con cui Home Assistant richiede un aggiornamento completo. Valori inferiori aggiornano prima ma generano più traffico locale.",
-              "temp_type": "Usa Auto salvo temperature o intervalli errati. Auto usa il codice app; se l'app non identifica un'unità nativa, viene usata quella configurata in Home Assistant."
+              "temp_type": "Usa Auto salvo temperature o intervalli errati. Auto usa il codice app; se l'app non identifica un'unità nativa, viene usata quella configurata in Home Assistant.",
+              "separate_http_port": "Usa una porta libera, ad esempio 8124, se Home Assistant usa HTTPS. Serve solo il protocollo del climatizzatore e sostituisce la porta HTTP di Home Assistant per questa configurazione. Usa una porta diversa per ogni configurazione. Lascia 0 per usare il server di Home Assistant."
             }
           }
         }
@@ -105,7 +107,11 @@
           "temp_type": "Unità di temperatura",
           "local_ip": "Indirizzo IP locale di Home Assistant",
           "callback_port": "Porta HTTP di Home Assistant",
-          "status_interval": "Intervallo aggiornamento stato"
+          "status_interval": "Intervallo aggiornamento stato",
+          "separate_http_port": "Porta HTTP separata (0 per disattivare)"
+        },
+        "data_description": {
+          "separate_http_port": "Usa una porta libera, ad esempio 8124, se Home Assistant usa HTTPS. Serve solo il protocollo del climatizzatore e sostituisce la porta HTTP di Home Assistant per questa configurazione. Usa una porta diversa per ogni configurazione. Lascia 0 per usare il server di Home Assistant."
         }
       },
       "reconfigure": {
@@ -137,7 +143,9 @@
       "no_device_selected": "Seleziona almeno un dispositivo.",
       "duplicate_device": "Un indirizzo MAC o IP del dispositivo è già configurato.",
       "invalid_auth": "Accesso rifiutato. Controlla app, nome utente e password.",
-      "invalid_local_ip": "Inserisci un indirizzo IPv4 valido o lascia vuoto per la selezione automatica."
+      "invalid_local_ip": "Inserisci un indirizzo IPv4 valido o lascia vuoto per la selezione automatica.",
+      "https_callback": "Home Assistant usa HTTPS sulla porta di richiamo. Il climatizzatore richiede HTTP. Imposta la porta HTTP separata su una porta libera, ad esempio 8124, nelle impostazioni avanzate o nelle opzioni. Se usi un proxy HTTP, specifica il suo indirizzo e la sua porta.",
+      "listener_port_conflict": "La porta HTTP separata deve essere diversa dalla porta del server di Home Assistant. Scegli una porta libera, ad esempio 8124."
     },
     "abort": {
       "already_configured": "Questo dispositivo è già configurato.",
@@ -152,18 +160,33 @@
           "local_ip": "Indirizzo IP locale di Home Assistant",
           "callback_port": "Porta HTTP di Home Assistant",
           "status_interval": "Intervallo aggiornamento stato",
-          "temp_type": "Unità di temperatura del dispositivo"
+          "temp_type": "Unità di temperatura del dispositivo",
+          "separate_http_port": "Porta HTTP separata (0 per disattivare)"
         },
         "data_description": {
           "local_ip": "Usa solo quando Home Assistant dispone di più interfacce di rete o VLAN. Lascia vuoto per il rilevamento automatico.",
           "callback_port": "Porta HTTP non crittografata raggiungibile dal climatizzatore, normalmente 8123.",
           "status_interval": "Frequenza, in secondi, con cui Home Assistant richiede un aggiornamento completo delle proprietà.",
-          "temp_type": "Usa Auto salvo temperature o intervalli errati. Auto mantiene l'unità rilevata durante la configurazione; C o F sostituiscono l'unità memorizzata dopo il ricaricamento dell'integrazione."
+          "temp_type": "Usa Auto salvo temperature o intervalli errati. Auto mantiene l'unità rilevata durante la configurazione; C o F sostituiscono l'unità memorizzata dopo il ricaricamento dell'integrazione.",
+          "separate_http_port": "Usa una porta libera, ad esempio 8124, se Home Assistant usa HTTPS. Serve solo il protocollo del climatizzatore e sostituisce la porta HTTP di Home Assistant per questa configurazione. Usa una porta diversa per ogni configurazione. Lascia 0 per usare il server di Home Assistant."
         }
       }
     },
     "error": {
-      "invalid_local_ip": "Inserisci un indirizzo IPv4 valido o lascia vuoto per la selezione automatica."
+      "invalid_local_ip": "Inserisci un indirizzo IPv4 valido o lascia vuoto per la selezione automatica.",
+      "https_callback": "Home Assistant usa HTTPS sulla porta di richiamo. Il climatizzatore richiede HTTP. Imposta la porta HTTP separata su una porta libera, ad esempio 8124, nelle impostazioni avanzate o nelle opzioni. Se usi un proxy HTTP, specifica il suo indirizzo e la sua porta.",
+      "listener_port_conflict": "La porta HTTP separata deve essere diversa dalla porta del server di Home Assistant. Scegli una porta libera, ad esempio 8124."
+    }
+  },
+  "exceptions": {
+    "https_callback": {
+      "message": "Home Assistant usa HTTPS sulla porta di richiamo. Il climatizzatore richiede HTTP. Imposta la porta HTTP separata su una porta libera, ad esempio 8124, nelle impostazioni avanzate o nelle opzioni. Se usi un proxy HTTP, specifica il suo indirizzo e la sua porta."
+    },
+    "listener_port_conflict": {
+      "message": "La porta HTTP separata deve essere diversa dalla porta del server di Home Assistant. Scegli una porta libera, ad esempio 8124."
+    },
+    "listener_bind_failed": {
+      "message": "Impossibile avviare il server HTTP sulla porta {port}. La porta potrebbe essere occupata o non disponibile. Scegli una porta libera nelle opzioni dell’integrazione; ogni configurazione richiede una porta diversa."
     }
   }
 }

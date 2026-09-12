@@ -39,6 +39,7 @@ from .const import (
     CONF_LANIP_KEY,
     CONF_LANIP_KEY_ID,
     CONF_LOCAL_IP,
+    CONF_SEPARATE_HTTP_PORT,
     CONF_MAC_ADDRESS,
     CONF_MODEL,
     CONF_SETUP_METHOD,
@@ -54,6 +55,7 @@ from .const import (
     TEMP_TYPE_OPTIONS,
 )
 from .discovery import perform_discovery
+from .controller import callback_error
 from .error import Error, InvalidAuth
 
 _LOGGER = logging.getLogger(__name__)
@@ -64,6 +66,7 @@ _DEFAULT_ADVANCED_SETTINGS = {
     CONF_DEVICE_NAME: "",
     CONF_LOCAL_IP: "",
     CONF_CALLBACK_PORT: DEFAULT_CALLBACK_PORT,
+    CONF_SEPARATE_HTTP_PORT: 0,
     CONF_STATUS_INTERVAL: DEFAULT_STATUS_INTERVAL,
     CONF_TEMP_TYPE: CONF_TEMP_TYPE_AUTO,
 }
@@ -181,6 +184,10 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
   async def async_step_cloud(self, user_input: dict[str, Any] | None = None):
     """Discover devices through the Hisense/Ayla account."""
     errors: dict[str, str] = {}
+    if self.source != "reconfigure" and (error := callback_error(
+        self.hass, (user_input or {}).get(_ADVANCED_SETTINGS, {}))):
+      errors["base"] = error
+      user_input = None
     if user_input is not None:
       advanced_settings = user_input.get(_ADVANCED_SETTINGS, {})
       try:
@@ -221,6 +228,7 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
               CONF_APP: user_input[CONF_APP],
               CONF_DEVICES: devices,
               CONF_LOCAL_IP: local_ip,
+              CONF_SEPARATE_HTTP_PORT: advanced_settings.get(CONF_SEPARATE_HTTP_PORT, 0),
               CONF_CALLBACK_PORT: advanced_settings.get(CONF_CALLBACK_PORT,
                                                         DEFAULT_CALLBACK_PORT),
               CONF_STATUS_INTERVAL: advanced_settings.get(CONF_STATUS_INTERVAL,
@@ -255,6 +263,7 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         vol.Optional(CONF_DEVICE_NAME, default=""): str,
                         vol.Optional(CONF_LOCAL_IP, default=""): vol.Maybe(str),
                         vol.Optional(CONF_CALLBACK_PORT, default=DEFAULT_CALLBACK_PORT): vol.All(int, vol.Range(min=1, max=65535)),
+                        vol.Optional(CONF_SEPARATE_HTTP_PORT, default=0): vol.All(int, vol.Range(min=0, max=65535)),
                         vol.Optional(CONF_STATUS_INTERVAL, default=DEFAULT_STATUS_INTERVAL): vol.All(int, vol.Range(min=1)),
                         vol.Optional(CONF_TEMP_TYPE, default=CONF_TEMP_TYPE_AUTO):
                             SelectSelector(
@@ -310,6 +319,9 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
   async def async_step_manual(self, user_input: dict[str, Any] | None = None):
     """Set up a device from an existing LAN key."""
     errors: dict[str, str] = {}
+    if self.source != "reconfigure" and (error := callback_error(self.hass, user_input or {})):
+      errors["base"] = error
+      user_input = None
     if user_input is not None:
       try:
         local_ip = _local_ip(user_input.get(CONF_LOCAL_IP))
@@ -332,6 +344,7 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
               CONF_APP: device["app"],
               CONF_LOCAL_IP: local_ip,
               CONF_CALLBACK_PORT: user_input.get(CONF_CALLBACK_PORT, DEFAULT_CALLBACK_PORT),
+              CONF_SEPARATE_HTTP_PORT: user_input.get(CONF_SEPARATE_HTTP_PORT, 0),
               CONF_STATUS_INTERVAL: user_input.get(CONF_STATUS_INTERVAL, DEFAULT_STATUS_INTERVAL),
               CONF_TEMP_TYPE: user_input[CONF_TEMP_TYPE],
           })
@@ -353,23 +366,34 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             vol.Required(CONF_TEMP_TYPE, default=_ha_temp_type(self.hass)): vol.In(["C", "F"]),
             vol.Optional(CONF_LOCAL_IP, default=""): vol.Maybe(str),
             vol.Required(CONF_CALLBACK_PORT, default=DEFAULT_CALLBACK_PORT): vol.All(int, vol.Range(min=1, max=65535)),
+            vol.Optional(CONF_SEPARATE_HTTP_PORT, default=0): vol.All(int, vol.Range(min=0, max=65535)),
             vol.Required(CONF_STATUS_INTERVAL, default=DEFAULT_STATUS_INTERVAL): vol.All(int, vol.Range(min=1)),
         }
     if self.source == "reconfigure":
       schema = {key: value for key, value in schema.items()
-                if key.schema not in (CONF_LOCAL_IP, CONF_CALLBACK_PORT, CONF_STATUS_INTERVAL)}
+                if key.schema not in (CONF_LOCAL_IP, CONF_CALLBACK_PORT, CONF_SEPARATE_HTTP_PORT,
+                                      CONF_STATUS_INTERVAL)}
     return self.async_show_form(step_id="manual", data_schema=vol.Schema(schema), errors=errors)
 
 
-class HisenseOptionsFlow(config_entries.OptionsFlow):
+class HisenseOptionsFlow(config_entries.OptionsFlowWithReload):
   """Handle Hisense options."""
 
   def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
     self._entry = config_entry
 
+  @property
+  def automatic_reload(self) -> bool:
+    """Recover failed setup too; loaded entries already have an update listener."""
+    return not self._entry.update_listeners
+
   async def async_step_init(self, user_input: dict[str, Any] | None = None):
     """Manage runtime options."""
     errors = {}
+    settings = user_input if user_input is not None else {**self._entry.data, **self._entry.options}
+    if error := callback_error(self.hass, settings):
+      errors["base"] = error
+      user_input = None
     if user_input is not None:
       try:
         local_ip = _local_ip(user_input.get(CONF_LOCAL_IP))
@@ -381,6 +405,7 @@ class HisenseOptionsFlow(config_entries.OptionsFlow):
             data={
                 CONF_LOCAL_IP: local_ip,
                 CONF_CALLBACK_PORT: user_input.get(CONF_CALLBACK_PORT, DEFAULT_CALLBACK_PORT),
+                CONF_SEPARATE_HTTP_PORT: user_input.get(CONF_SEPARATE_HTTP_PORT, 0),
                 CONF_STATUS_INTERVAL: user_input.get(CONF_STATUS_INTERVAL, DEFAULT_STATUS_INTERVAL),
                 CONF_TEMP_TYPE: user_input[CONF_TEMP_TYPE],
             },
@@ -390,6 +415,12 @@ class HisenseOptionsFlow(config_entries.OptionsFlow):
         step_id="init",
         errors=errors,
         data_schema=vol.Schema({
+            vol.Optional(
+                CONF_SEPARATE_HTTP_PORT,
+                default=self._entry.options.get(
+                    CONF_SEPARATE_HTTP_PORT, self._entry.data.get(CONF_SEPARATE_HTTP_PORT, 0)),
+            ):
+                vol.All(int, vol.Range(min=0, max=65535)),
             vol.Optional(
                 CONF_LOCAL_IP,
                 default=self._entry.options.get(
