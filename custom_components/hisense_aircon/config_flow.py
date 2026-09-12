@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from ipaddress import IPv4Address
 import logging
+import socket
 from typing import Any
 
 from aiohttp import ClientError
@@ -70,6 +71,32 @@ _DEFAULT_ADVANCED_SETTINGS = {
     CONF_STATUS_INTERVAL: DEFAULT_STATUS_INTERVAL,
     CONF_TEMP_TYPE: CONF_TEMP_TYPE_AUTO,
 }
+
+
+async def _async_listener_port(hass, settings: dict) -> int:
+  """Suggest a free port for direct HTTPS callbacks, preserving existing choices."""
+  ha_port = getattr(getattr(hass, "http", None), "server_port", DEFAULT_CALLBACK_PORT)
+  if callback_error(hass, {CONF_CALLBACK_PORT: ha_port, **settings}) != "https_callback":
+    return settings.get(CONF_SEPARATE_HTTP_PORT, 0)
+  used = {ha_port} | {
+      entry.options.get(CONF_SEPARATE_HTTP_PORT, entry.data.get(CONF_SEPARATE_HTTP_PORT, 0))
+      for entry in hass.config_entries.async_entries(DOMAIN)
+  }
+  return await hass.async_add_executor_job(_free_listener_port, used)
+
+
+def _free_listener_port(used: set[int]) -> int:
+  """Probe the same IPv4 bind as the listener, including ports reserved by entries."""
+  for port in range(8124, 65536):
+    if port in used:
+      continue
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+      try:
+        sock.bind(("0.0.0.0", port))
+      except OSError:
+        continue
+      return port
+  return 0
 
 
 class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -184,8 +211,14 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
   async def async_step_cloud(self, user_input: dict[str, Any] | None = None):
     """Discover devices through the Hisense/Ayla account."""
     errors: dict[str, str] = {}
+    port = 0 if self.source == "reconfigure" else await _async_listener_port(
+        self.hass, (user_input or {}).get(_ADVANCED_SETTINGS, {}))
+    defaults = {**_DEFAULT_ADVANCED_SETTINGS, CONF_SEPARATE_HTTP_PORT: port}
+    if user_input is not None:
+      user_input = {**user_input, _ADVANCED_SETTINGS: {
+          **defaults, **user_input.get(_ADVANCED_SETTINGS, {})}}
     if self.source != "reconfigure" and (error := callback_error(
-        self.hass, (user_input or {}).get(_ADVANCED_SETTINGS, {}))):
+        self.hass, user_input[_ADVANCED_SETTINGS] if user_input is not None else defaults)):
       errors["base"] = error
       user_input = None
     if user_input is not None:
@@ -257,13 +290,13 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             vol.Required(CONF_USERNAME): str,
             vol.Required(CONF_PASSWORD):
                 TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD)),
-            vol.Required(_ADVANCED_SETTINGS, default=_DEFAULT_ADVANCED_SETTINGS):
+            vol.Required(_ADVANCED_SETTINGS, default=defaults):
                 section(
                     vol.Schema({
                         vol.Optional(CONF_DEVICE_NAME, default=""): str,
                         vol.Optional(CONF_LOCAL_IP, default=""): vol.Maybe(str),
                         vol.Optional(CONF_CALLBACK_PORT, default=DEFAULT_CALLBACK_PORT): vol.All(int, vol.Range(min=1, max=65535)),
-                        vol.Optional(CONF_SEPARATE_HTTP_PORT, default=0): vol.All(int, vol.Range(min=0, max=65535)),
+                        vol.Optional(CONF_SEPARATE_HTTP_PORT, default=port): vol.All(int, vol.Range(min=0, max=65535)),
                         vol.Optional(CONF_STATUS_INTERVAL, default=DEFAULT_STATUS_INTERVAL): vol.All(int, vol.Range(min=1)),
                         vol.Optional(CONF_TEMP_TYPE, default=CONF_TEMP_TYPE_AUTO):
                             SelectSelector(
@@ -319,7 +352,11 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
   async def async_step_manual(self, user_input: dict[str, Any] | None = None):
     """Set up a device from an existing LAN key."""
     errors: dict[str, str] = {}
-    if self.source != "reconfigure" and (error := callback_error(self.hass, user_input or {})):
+    port = 0 if self.source == "reconfigure" else await _async_listener_port(self.hass, user_input or {})
+    if user_input is not None:
+      user_input = {CONF_SEPARATE_HTTP_PORT: port, **user_input}
+    if self.source != "reconfigure" and (error := callback_error(
+        self.hass, user_input if user_input is not None else {CONF_SEPARATE_HTTP_PORT: port})):
       errors["base"] = error
       user_input = None
     if user_input is not None:
@@ -366,7 +403,7 @@ class HisenseConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             vol.Required(CONF_TEMP_TYPE, default=_ha_temp_type(self.hass)): vol.In(["C", "F"]),
             vol.Optional(CONF_LOCAL_IP, default=""): vol.Maybe(str),
             vol.Required(CONF_CALLBACK_PORT, default=DEFAULT_CALLBACK_PORT): vol.All(int, vol.Range(min=1, max=65535)),
-            vol.Optional(CONF_SEPARATE_HTTP_PORT, default=0): vol.All(int, vol.Range(min=0, max=65535)),
+            vol.Optional(CONF_SEPARATE_HTTP_PORT, default=port): vol.All(int, vol.Range(min=0, max=65535)),
             vol.Required(CONF_STATUS_INTERVAL, default=DEFAULT_STATUS_INTERVAL): vol.All(int, vol.Range(min=1)),
         }
     if self.source == "reconfigure":
@@ -390,7 +427,11 @@ class HisenseOptionsFlow(config_entries.OptionsFlowWithReload):
   async def async_step_init(self, user_input: dict[str, Any] | None = None):
     """Manage runtime options."""
     errors = {}
-    settings = user_input if user_input is not None else {**self._entry.data, **self._entry.options}
+    settings = {**self._entry.data, **self._entry.options, **(user_input or {})}
+    port = await _async_listener_port(self.hass, settings)
+    if user_input is not None:
+      user_input = {CONF_SEPARATE_HTTP_PORT: port, **user_input}
+    settings = user_input if user_input is not None else {**settings, CONF_SEPARATE_HTTP_PORT: port}
     if error := callback_error(self.hass, settings):
       errors["base"] = error
       user_input = None
@@ -417,8 +458,7 @@ class HisenseOptionsFlow(config_entries.OptionsFlowWithReload):
         data_schema=vol.Schema({
             vol.Optional(
                 CONF_SEPARATE_HTTP_PORT,
-                default=self._entry.options.get(
-                    CONF_SEPARATE_HTTP_PORT, self._entry.data.get(CONF_SEPARATE_HTTP_PORT, 0)),
+                default=port,
             ):
                 vol.All(int, vol.Range(min=0, max=65535)),
             vol.Optional(

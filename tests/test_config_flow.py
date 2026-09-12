@@ -251,7 +251,7 @@ class ConfigFlowTests(unittest.IsolatedAsyncioTestCase):
     self.flow.context = {'source': 'user'}
     for step in (self.flow.async_step_cloud, self.flow.async_step_manual):
       form = await step()
-      self.assertEqual(form['errors']['base'], 'https_callback')
+      self.assertFalse(form['errors'])
     manual = dict(name='Manual', app='hisense-eu', host='192.0.2.2',
                   mac_address='aabbccddeeff', lanip_key='testkey', lanip_key_id=1,
                   model='AEH-W4E1', temp_type='C', separate_http_port=8123)
@@ -291,6 +291,69 @@ class ConfigFlowTests(unittest.IsolatedAsyncioTestCase):
     self.assertNotIn('separate_http_port', {key.schema for key in form['data_schema'].schema})
     await self.flow.async_step_manual(manual)
     self.assertEqual(self.entry.options['separate_http_port'], 8126)
+
+  async def test_https_port_suggestion_skips_busy_and_saved_ports_and_survives_submission(self):
+    import socket
+    from custom_components.hisense_aircon.config_flow import (
+        HisenseOptionsFlow, _async_listener_port, _free_listener_port,
+    )
+    self.hass.http = SimpleNamespace(ssl_certificate='cert.pem', server_port=8123)
+    self.flow.context = {'source': 'user'}
+    busy = _free_listener_port(set())
+    with socket.socket() as sock:
+      sock.bind(('0.0.0.0', busy))
+      sock.listen()
+      reserved = busy + 1
+      self.hass.config_entries.async_update_entry(self.entry, options={'separate_http_port': reserved})
+      port = await _async_listener_port(self.hass, {})
+      self.assertGreater(port, reserved)
+      with socket.socket() as probe:
+        probe.bind(('0.0.0.0', port))
+      manual = dict(name='Manual', app='hisense-eu', host='192.0.2.2',
+                    mac_address='aabbccddeeff', lanip_key='testkey', lanip_key_id=1,
+                    model='AEH-W4E1', temp_type='C')
+      form = await self.flow.async_step_manual()
+      submitted = form['data_schema'](manual)
+      self.assertEqual(submitted['separate_http_port'], port)
+      self.assertEqual((await self.flow.async_step_manual(submitted))['data']['separate_http_port'], port)
+      form = await self.flow.async_step_cloud()
+      submitted = form['data_schema']({'app': 'hisense-eu', 'username': 'u', 'password': 'p'})
+      self.assertEqual(submitted['advanced_settings']['separate_http_port'], port)
+      discovered = [{**device('112233445566', '192.0.2.3'), 'product_name': 'New',
+                     'mac': '112233445566', 'lan_ip': '192.0.2.3'}]
+      with patch('custom_components.hisense_aircon.config_flow.perform_discovery',
+                 AsyncMock(return_value=discovered)), patch(
+                     'custom_components.hisense_aircon.config_flow.async_get_clientsession'):
+        await self.flow.async_step_cloud(submitted)
+      result = await self.flow.async_step_select_devices({'selected_devices': ['112233445566']})
+      self.assertEqual(result['data']['separate_http_port'], port)
+      options = HisenseOptionsFlow(self.entry)
+      options.hass = self.hass
+      form = await options.async_step_init()
+      self.assertEqual(form['data_schema']({'temp_type': 'auto'})['separate_http_port'], reserved)
+      self.hass.config_entries.async_update_entry(self.entry, options={'separate_http_port': 0})
+      form = await options.async_step_init()
+      self.assertFalse(form['errors'])
+      submitted = form['data_schema']({'temp_type': 'auto'})
+      self.assertGreater(submitted['separate_http_port'], busy)
+      self.assertEqual(self.entry.options['separate_http_port'], 0)
+      self.assertEqual((await options.async_step_init(submitted))['data']['separate_http_port'],
+                       submitted['separate_http_port'])
+      # Explicit proxy settings keep their existing HTTP route.
+      for settings in ({'local_ip': '192.0.2.100'}, {'callback_port': 8080}):
+        self.assertEqual(await _async_listener_port(self.hass, settings), 0)
+      # A custom HA HTTPS port also receives a separate port suggestion.
+      self.hass.http.server_port = 8443
+      self.assertGreater(await _async_listener_port(self.hass, {}), busy)
+      self.hass.http.ssl_certificate = None
+      self.assertEqual(await _async_listener_port(self.hass, {}), 0)
+      for step in (self.flow.async_step_cloud, self.flow.async_step_manual, options.async_step_init):
+        form = await step()
+        if form['step_id'] == 'cloud':
+          data = form['data_schema']({'username': 'u', 'password': 'p'})['advanced_settings']
+        else:
+          data = form['data_schema'](manual if form['step_id'] == 'manual' else {'temp_type': 'auto'})
+        self.assertEqual(data['separate_http_port'], 0)
 
   async def test_options_reload_after_failed_setup_without_double_reload_when_loaded(self):
     from custom_components.hisense_aircon.config_flow import HisenseOptionsFlow

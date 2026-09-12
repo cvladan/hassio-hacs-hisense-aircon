@@ -22,14 +22,14 @@
         "sections": {
           "advanced_settings": {
             "name": "Advanced Settings",
-            "description": "Most users should leave these values unchanged. Use this section only if you need to add one specific device from the account, if Home Assistant has multiple network interfaces or VLANs, if your Home Assistant HTTP port is not 8123, or if you want to change how often the integration asks the device for a full property refresh. Also use this section when Home Assistant uses HTTPS.",
+            "description": "The suggested settings work for most setups. Change them only if needed.",
             "data": {
               "device_name": "Device name filter",
               "local_ip": "Home Assistant local IP address",
               "callback_port": "Home Assistant HTTP port",
               "status_interval": "Status refresh interval",
               "temp_type": "Device temperature unit",
-              "separate_http_port": "Separate HTTP listener port (0 to disable)"
+              "separate_http_port": "Separate HTTP port"
             },
             "data_description": {
               "device_name": "Optional exact device name from the mobile app. Leave empty to add every compatible device found in this app account.",
@@ -37,7 +37,7 @@
               "callback_port": "Plain HTTP port on Home Assistant that the air conditioner can reach. This is usually 8123. Change it only if Home Assistant is exposed to the device on a different local HTTP port.",
               "status_interval": "How often, in seconds, Home Assistant queues a full property refresh for the device. Lower values update stale entities sooner but create more local traffic; higher values are quieter but slower to notice changes made outside Home Assistant.",
               "temp_type": "Use auto unless temperatures or valid ranges look wrong. Auto uses the selected app code; if the app does not identify a native unit, Home Assistant's configured temperature unit is used as the fallback.",
-              "separate_http_port": "Use a free port, such as 8124, when Home Assistant uses HTTPS. This serves only the air conditioner protocol and overrides the Home Assistant HTTP port for this entry. Use a different port for each entry. Leave 0 to use the Home Assistant server."
+              "separate_http_port": "For HTTPS, we suggest a free port. Keep 0 to use the Home Assistant HTTP server."
             }
           }
         }
@@ -64,10 +64,10 @@
           "local_ip": "Home Assistant local IP address",
           "callback_port": "Home Assistant HTTP port",
           "status_interval": "Status refresh interval",
-          "separate_http_port": "Separate HTTP listener port (0 to disable)"
+          "separate_http_port": "Separate HTTP port"
         },
         "data_description": {
-          "separate_http_port": "Use a free port, such as 8124, when Home Assistant uses HTTPS. This serves only the air conditioner protocol and overrides the Home Assistant HTTP port for this entry. Use a different port for each entry. Leave 0 to use the Home Assistant server."
+          "separate_http_port": "For HTTPS, we suggest a free port. Keep 0 to use the Home Assistant HTTP server."
         }
       },
       "reconfigure": {
@@ -100,8 +100,8 @@
       "duplicate_device": "A device MAC address or IP address is already configured.",
       "invalid_auth": "Sign in was rejected. Check the app, username, and password.",
       "invalid_local_ip": "Enter a valid IPv4 address or leave empty for automatic selection.",
-      "https_callback": "Home Assistant uses HTTPS on the callback port. The air conditioner requires plain HTTP. Set Separate HTTP listener port to a free port, such as 8124, in Advanced Settings or the integration options. If you use a plain HTTP proxy instead, specify its address and port.",
-      "listener_port_conflict": "The separate HTTP listener must use a different port from the Home Assistant server. Choose a free port, such as 8124."
+      "https_callback": "Home Assistant uses HTTPS. Choose a separate HTTP port for your air conditioner.",
+      "listener_port_conflict": "Home Assistant uses this port. Choose another."
     },
     "abort": {
       "already_configured": "This device is already configured.",
@@ -117,21 +117,21 @@
           "callback_port": "Home Assistant HTTP port",
           "status_interval": "Status refresh interval",
           "temp_type": "Device temperature unit",
-          "separate_http_port": "Separate HTTP listener port (0 to disable)"
+          "separate_http_port": "Separate HTTP port"
         },
         "data_description": {
           "local_ip": "Use only when Home Assistant has multiple network interfaces or VLANs. Leave empty for automatic detection.",
           "callback_port": "The plain HTTP port that the air conditioner can reach, usually 8123.",
           "status_interval": "How often Home Assistant queues a full property refresh, in seconds.",
           "temp_type": "Use auto unless temperatures or valid ranges look wrong. Auto keeps the unit detected during setup; C or F overrides the stored device unit after the integration reloads.",
-          "separate_http_port": "Use a free port, such as 8124, when Home Assistant uses HTTPS. This serves only the air conditioner protocol and overrides the Home Assistant HTTP port for this entry. Use a different port for each entry. Leave 0 to use the Home Assistant server."
+          "separate_http_port": "For HTTPS, we suggest a free port. Keep 0 to use the Home Assistant HTTP server."
         }
       }
     },
     "error": {
       "invalid_local_ip": "Enter a valid IPv4 address or leave empty for automatic selection.",
-      "https_callback": "Home Assistant uses HTTPS on the callback port. The air conditioner requires plain HTTP. Set Separate HTTP listener port to a free port, such as 8124, in Advanced Settings or the integration options. If you use a plain HTTP proxy instead, specify its address and port.",
-      "listener_port_conflict": "The separate HTTP listener must use a different port from the Home Assistant server. Choose a free port, such as 8124."
+      "https_callback": "Home Assistant uses HTTPS. Choose a separate HTTP port for your air conditioner.",
+      "listener_port_conflict": "Home Assistant uses this port. Choose another."
     }
   },
   "entity": {
@@ -180,13 +180,13 @@
   },
   "exceptions": {
     "https_callback": {
-      "message": "Home Assistant uses HTTPS on the callback port. The air conditioner requires plain HTTP. Set Separate HTTP listener port to a free port, such as 8124, in Advanced Settings or the integration options. If you use a plain HTTP proxy instead, specify its address and port."
+      "message": "Home Assistant uses HTTPS. Choose a separate HTTP port for your air conditioner."
     },
     "listener_port_conflict": {
-      "message": "The separate HTTP listener must use a different port from the Home Assistant server. Choose a free port, such as 8124."
+      "message": "Home Assistant uses this port. Choose another."
     },
     "listener_bind_failed": {
-      "message": "Could not start the HTTP listener on port {port}. The port may be in use or unavailable. Choose a free port in the integration options; each entry needs a different port."
+      "message": "Port {port} is unavailable. Choose another in the integration options."
     }
   }
 }

@@ -95,7 +95,7 @@ Advanced settings are optional and can usually stay collapsed:
 
 - device name filter, if you want discovery to look for only one exact app device name
 - Home Assistant HTTP port, usually `8123`
-- separate HTTP listener port, `0` to keep using the HA server or a free port such as `8124` when HA uses HTTPS
+- separate HTTP port, automatically suggested for HTTPS or `0` to use the HA server
 - optional Home Assistant local IP if HA has multiple network interfaces or VLANs
 - device temperature unit override, if the automatic app-code detection reports the wrong unit
 
@@ -172,14 +172,14 @@ Starting with version 1.4.0, you can enable a separate HTTP listener for device 
 
 1. Update the integration through HACS and restart Home Assistant.
 2. Open **Settings > Devices & services > Hisense Air Conditioner > Configure**. During initial cloud setup, open **Advanced Settings** instead.
-3. Set **Separate HTTP listener port (0 to disable)** to a free port, for example `8124`, and save.
+3. With version 1.4.1 or newer, **Separate HTTP port** already suggests a free port for direct HTTPS setups. Accept it and save, or choose your own port.
 4. Allow the air conditioner to reach that TCP port on the Home Assistant host. With container bridge networking, publish the same port on the host, for example `8124:8124`. With host networking, no extra container port mapping is needed.
 
 This port overrides **Home Assistant HTTP port** for that configuration. The listener binds to all IPv4 interfaces and serves only the six device endpoints above, using the same source IP checks, LAN key exchange, message signatures, and request size limits. It does not expose the HA interface or API. Keep it on the local network. Browser requests from an unconfigured device address are rejected rather than showing the HA endpoint explanation.
 
 All devices in one configuration share its listener. Each configuration using a separate listener needs a different free port, for example `8124` and `8125`. Configurations using the HA web server can continue alongside them. Reloading or removing one configuration closes only its listener. A busy port produces a setup error without stopping the configuration already using it.
 
-The integration detects direct callbacks to HA's HTTPS port and explains how to enable the listener. Explicit callback address or port overrides are still allowed for existing plain HTTP proxies; those overrides must actually provide an HTTP route to HA. If HTTPS is handled by a reverse proxy and HA already serves HTTP on the local network, the separate listener is optional.
+The suggestion checks local port availability and skips ports saved by other configurations. It is checked when the form opens, so another application could still take it before setup finishes; in that case, the integration asks you to choose another. Existing listener ports and explicit callback address or port overrides for plain HTTP proxies are preserved. Those overrides must actually provide an HTTP route to HA. If HTTPS is handled by a reverse proxy and HA already serves HTTP on the local network, the separate listener is optional.
 
 No changes are required for working HTTP installations. The default `0` keeps the existing callback settings. To switch back, set the separate port to `0` and make sure **Home Assistant HTTP port** is reachable over plain HTTP. Saving options also retries an entry whose setup previously failed.
 

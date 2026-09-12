@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.4.1
+
+- Suggest a free separate HTTP port when setting up direct HTTPS callbacks or opening options for an affected entry. Check the local port and skip ports saved by other configurations.
+- Keep working HTTP settings at `0` and preserve existing listener ports and explicit proxy settings.
+- Shorten the port label and setup messages in English and Italian.
+
+Migration: Update and restart Home Assistant. With HTTPS enabled, open the integration's Configure options and save the suggested **Separate HTTP port**. Make that port reachable from the air conditioner. Existing working configurations need no changes.
+
 ## 1.4.0
 
 - Add an optional separate HTTP listener for air conditioner callbacks, restoring support for Home Assistant installations that serve HTTPS directly. Fixes the limitation present since the original HACS conversion, reported in #13.
